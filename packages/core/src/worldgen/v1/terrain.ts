@@ -31,6 +31,8 @@ export interface ClimateSample {
   ridges: number; // [0, 1]
   temperature: number; // [-1, 1]
   humidity: number; // [-1, 1]
+  /** "Seltsamkeit" – seltene Biome (Aschenfeld). */
+  weird: number; // [-1, 1]
 }
 
 export class Terrain {
@@ -43,6 +45,8 @@ export class Terrain {
   private readonly nHumid: Noise2;
   private readonly nWarpX: Noise2;
   private readonly nWarpZ: Noise2;
+  private readonly nWeird: Noise2;
+  private readonly nPool: Noise2;
   readonly nCaveA: Noise3;
   readonly nCaveB: Noise3;
   readonly nCaveC: Noise3;
@@ -60,6 +64,13 @@ export class Terrain {
     this.nCaveA = noise3(splitSeed(seed, 9));
     this.nCaveB = noise3(splitSeed(seed, 10));
     this.nCaveC = noise3(splitSeed(seed, 11));
+    this.nWeird = noise2(splitSeed(seed, 12));
+    this.nPool = noise2(splitSeed(seed, 13));
+  }
+
+  /** Moor-Tümpel: zusammenhängende Flecken (λ ≈ 20 m). */
+  poolAt(x: number, z: number): boolean {
+    return this.nPool(x / 20, z / 20) > 0.42;
   }
 
   climate(x: number, z: number): ClimateSample {
@@ -72,6 +83,7 @@ export class Terrain {
       ridges: ridged2(this.nRidges, wx / 256, wz / 256, 3),
       temperature: fbm2(this.nTemp, wx / 1536, wz / 1536, 2),
       humidity: fbm2(this.nHumid, wx / 1200, wz / 1200, 2),
+      weird: fbm2(this.nWeird, wx / 900, wz / 900, 2),
     };
   }
 
@@ -96,11 +108,19 @@ export class Terrain {
     return clamp(Math.round(h), 1, 250);
   }
 
-  /** Oberflächen-Biom nach Höhe und Klima (Phase 0: drei Biome). */
+  /** Oberflächen-Biom nach Höhe und Klima. */
   biomeAt(height: number, c: ClimateSample): Biome {
     if (height < SEA_LEVEL - 2) return Biome.Sternenmeer;
     if (height <= SEA_LEVEL + 2) return Biome.Perlkueste;
-    void c;
+    if (height >= 140) return Biome.Himmelsgrat;
+    const t = c.temperature;
+    const h = c.humidity;
+    if (t < -0.28) return Biome.Frostkamm;
+    if (c.weird > 0.42 && t > 0.05) return Biome.Aschenfeld;
+    if (t > 0.3 && h < -0.12) return Biome.Glasduenen;
+    if (h > 0.3 && height < 88) return Biome.Nebelmoor;
+    if (h > 0.08) return Biome.Fluesterwald;
+    if (t > 0.14 && h > -0.15) return Biome.Bluetental;
     return Biome.Hainland;
   }
 }

@@ -1,4 +1,4 @@
-import { hash2, hashToUnit } from '../../math/rng.ts';
+import { hash2, hash3, hashToUnit } from '../../math/rng.ts';
 import { AIR } from '../../voxel/Block.ts';
 import { type Column, columnGet, columnSet, newColumn } from '../../voxel/Chunk.ts';
 import {
@@ -15,8 +15,8 @@ import { isCave, Terrain } from './terrain.ts';
  * Weltgen v1 – deterministisch je (seed, cx, cz), identisch in Worker und Server.
  *
  * Reihenfolge je Spalte:
- *   1 Klima + Höhe je (x,z)      2 Schichten (Urgestein, Stein, Erde, Deckblock, Wasser)
- *   3 Höhlen (3D-Noise, 9³-Gitter)  4 Bäume (Hash-Raster, auch aus Nachbarspalten hineinragend)
+ *   1 Klima + Höhe + Biom je (x,z)   2 Schichten je Biom (Urgestein, Füllung, Deckblock, Wasser)
+ *   3 Höhlen (3D-Noise, 9³-Gitter) + Kristalle   4 Bäume je Biom (Hash-Raster, über Spaltengrenzen)
  */
 export const WORLDGEN_VERSION = 1;
 
@@ -32,6 +32,14 @@ export interface WorldBlocks {
   leaves: number;
   snow: number;
   bedrock: number;
+  forestGrass: number;
+  blossomGrass: number;
+  blossomLeaves: number;
+  needleLeaves: number;
+  moorGrass: number;
+  ash: number;
+  basalt: number;
+  crystal: number;
 }
 
 const GRID = 9; // 9×9×9 Noise-Gitter je Chunk (alle 4 Blöcke)
@@ -40,16 +48,78 @@ const gridA = new Float32Array(GRID * GRID * GRID);
 const gridB = new Float32Array(GRID * GRID * GRID);
 const gridC = new Float32Array(GRID * GRID * GRID);
 
-const TREE_RADIUS = 3;
-const SNOW_LINE = 165;
+const TREE_RADIUS = 4;
+const SNOW_LINE = 150;
+const CRYSTAL_MAX_Y = 40;
+
+type TreeKind = 'hain' | 'riese' | 'bluete' | 'nadel' | 'moor';
+
 /** Kronenschichten relativ zur Stammspitze: [dy, Radius, max. Distanz²]. */
-const CROWN_LAYERS: readonly (readonly [number, number, number])[] = [
-  [-2, 2, 5],
-  [-1, 3, 10],
-  [0, 3, 8],
-  [1, 2, 4],
-  [2, 1, 1],
-];
+const CROWN: Record<TreeKind, readonly (readonly [number, number, number])[]> = {
+  hain: [
+    [-2, 2, 5],
+    [-1, 3, 10],
+    [0, 3, 8],
+    [1, 2, 4],
+    [2, 1, 1],
+  ],
+  riese: [
+    [-4, 3, 10],
+    [-3, 4, 17],
+    [-2, 4, 17],
+    [-1, 4, 13],
+    [0, 3, 10],
+    [1, 2, 5],
+    [2, 1, 1],
+  ],
+  bluete: [
+    [-2, 2, 5],
+    [-1, 3, 10],
+    [0, 3, 10],
+    [1, 2, 5],
+    [2, 1, 1],
+  ],
+  nadel: [
+    [-6, 3, 10],
+    [-5, 2, 5],
+    [-4, 3, 10],
+    [-3, 2, 5],
+    [-2, 2, 4],
+    [-1, 1, 2],
+    [0, 1, 1],
+    [1, 0, 0],
+  ],
+  moor: [
+    [-1, 2, 5],
+    [0, 2, 4],
+    [1, 1, 1],
+  ],
+};
+
+interface TreeSpec {
+  kind: TreeKind;
+  /** Anteil belegter Rasterzellen 0–1. */
+  density: number;
+  minTrunk: number;
+  maxTrunk: number;
+}
+
+function treeSpecFor(biome: number): TreeSpec | null {
+  switch (biome) {
+    case Biome.Hainland:
+      return { kind: 'hain', density: 0.45, minTrunk: 4, maxTrunk: 6 };
+    case Biome.Fluesterwald:
+      return { kind: 'riese', density: 0.6, minTrunk: 7, maxTrunk: 11 };
+    case Biome.Bluetental:
+      return { kind: 'bluete', density: 0.35, minTrunk: 4, maxTrunk: 6 };
+    case Biome.Frostkamm:
+      return { kind: 'nadel', density: 0.4, minTrunk: 7, maxTrunk: 10 };
+    case Biome.Nebelmoor:
+      return { kind: 'moor', density: 0.2, minTrunk: 3, maxTrunk: 4 };
+    default:
+      return null;
+  }
+}
 
 export class WorldGenerator {
   readonly seed: number;
@@ -71,8 +141,9 @@ export class WorldGenerator {
     const baseX = cx * CHUNK_SIZE;
     const baseZ = cz * CHUNK_SIZE;
 
-    // 1. Höhen + Biome
+    // 1. Höhen + Biome (+ Moor-Tümpel: Oberfläche 2 tiefer, Wasser darüber)
     const heights = col.height;
+    const pool = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
     let minH = WORLD_HEIGHT;
     let maxH = 0;
     for (let z = 0; z < CHUNK_SIZE; z++) {
@@ -80,10 +151,15 @@ export class WorldGenerator {
         const wx = baseX + x;
         const wz = baseZ + z;
         const c = t.climate(wx, wz);
-        const h = t.heightFromClimate(wx, wz, c);
+        let h = t.heightFromClimate(wx, wz, c);
+        const biome = t.biomeAt(h, c);
         const i = x + z * CHUNK_SIZE;
+        if (biome === Biome.Nebelmoor && h > SEA_LEVEL + 3 && t.poolAt(wx, wz)) {
+          pool[i] = 1;
+          h -= 2;
+        }
         heights[i] = h;
-        col.biome[i] = t.biomeAt(h, c);
+        col.biome[i] = biome;
         if (h < minH) minH = h;
         if (h > maxH) maxH = h;
       }
@@ -99,8 +175,8 @@ export class WorldGenerator {
         chunk.uniformBlock = B.stone;
         continue;
       }
-      if (y0 > Math.max(maxH, SEA_LEVEL)) {
-        chunk.uniformBlock = AIR; // reine Luft
+      if (y0 > Math.max(maxH + 2, SEA_LEVEL)) {
+        chunk.uniformBlock = AIR;
         continue;
       }
       const arr = chunk.materializeBlocks();
@@ -111,6 +187,8 @@ export class WorldGenerator {
           const biome = col.biome[i]!;
           const wx = baseX + x;
           const wz = baseZ + z;
+          const waterTop = pool[i] ? h + 1 : SEA_LEVEL;
+          const filler = this.fillerBlock(biome, h);
           for (let y = y0; y <= y1; y++) {
             let v = AIR;
             if (y === 0) v = B.bedrock;
@@ -119,35 +197,71 @@ export class WorldGenerator {
               hashToUnit(hash2(this.seed ^ 0x6ed, wx * 7 + y, wz * 13)) < 0.6 - y * 0.2
             )
               v = B.bedrock;
-            else if (y < h - 3) v = B.stone;
-            else if (y < h) v = biome === Biome.Hainland && h > SEA_LEVEL + 2 ? B.dirt : B.sand;
-            else if (y === h) v = this.surfaceBlock(biome, h, wx, wz);
-            else if (y <= SEA_LEVEL) v = B.water;
+            else if (y < h - 3) v = biome === Biome.Aschenfeld ? B.basalt : B.stone;
+            else if (y < h) v = filler;
+            else if (y === h) v = pool[i] ? B.dirt : this.surfaceBlock(biome, h, wx, wz);
+            else if (y <= waterTop) v = B.water;
             if (v !== AIR) arr[i | ((y - y0) << 10)] = v;
           }
         }
       }
     }
 
-    // 3. Höhlen
+    // 3. Höhlen + Kristalle
     this.carveCaves(col, baseX, baseZ, heights);
 
     // 4. Bäume (auch aus Nachbarspalten hineinragend)
     this.placeTrees(col, baseX, baseZ);
 
-    // Uniform-Chunks zurückverdichten (z. B. ganz Luft über flachem Land).
     for (const c of col.chunks) c.compactBlocks();
     return col;
   }
 
+  private fillerBlock(biome: number, h: number): number {
+    const B = this.blocks;
+    switch (biome) {
+      case Biome.Sternenmeer:
+      case Biome.Perlkueste:
+      case Biome.Glasduenen:
+        return B.sand;
+      case Biome.Aschenfeld:
+        return B.basalt;
+      case Biome.Himmelsgrat:
+        return B.stone;
+      case Biome.Frostkamm:
+        return h >= SNOW_LINE - 20 ? B.stone : B.dirt;
+      default:
+        return B.dirt;
+    }
+  }
+
   private surfaceBlock(biome: number, h: number, wx: number, wz: number): number {
     const B = this.blocks;
-    if (biome === Biome.Sternenmeer) {
-      return hashToUnit(hash2(this.seed ^ 0x5a, wx, wz)) < 0.25 ? B.gravel : B.sand;
+    switch (biome) {
+      case Biome.Sternenmeer:
+        return hashToUnit(hash2(this.seed ^ 0x5a, wx, wz)) < 0.25 ? B.gravel : B.sand;
+      case Biome.Perlkueste:
+      case Biome.Glasduenen:
+        return B.sand;
+      case Biome.Fluesterwald:
+        return B.forestGrass;
+      case Biome.Bluetental:
+        return B.blossomGrass;
+      case Biome.Nebelmoor:
+        return B.moorGrass;
+      case Biome.Frostkamm:
+        return B.snow;
+      case Biome.Aschenfeld:
+        return B.ash;
+      case Biome.Himmelsgrat:
+        return h >= SNOW_LINE
+          ? B.snow
+          : hashToUnit(hash2(this.seed ^ 0x9c, wx, wz)) < 0.3
+            ? B.gravel
+            : B.stone;
+      default:
+        return h >= SNOW_LINE ? B.snow : B.grass;
     }
-    if (biome === Biome.Perlkueste) return B.sand;
-    if (h >= SNOW_LINE) return B.snow;
-    return B.grass;
   }
 
   private carveCaves(col: Column, baseX: number, baseZ: number, heights: Uint8Array): void {
@@ -158,7 +272,6 @@ export class WorldGenerator {
       const y0 = cy << CHUNK_BITS;
       if (chunk.isUniform && chunk.uniformBlock === AIR) continue;
       if (y0 > 200) continue;
-      // Gitter füllen
       let gi = 0;
       for (let gy = 0; gy < GRID; gy++) {
         const wy = y0 + gy * GRID_STEP;
@@ -186,10 +299,9 @@ export class WorldGenerator {
             if (y >= h - 4 || y < 6) continue;
             const li = x | (z << CHUNK_BITS) | (ly << 10);
             const v = arr[li]!;
-            if (v !== B.stone && v !== B.dirt) continue;
+            if (v !== B.stone && v !== B.dirt && v !== B.basalt) continue;
             const gy = ly >> 2;
             const fy = (ly & 3) / 4;
-            // Spaghetti: beide Noises nahe 0 – zweiten nur auswerten, wenn der erste passt.
             const a = trilinear(gridA, gx, gy, gz, fx, fy, fz);
             let cave = false;
             if (Math.abs(a) < 0.075) {
@@ -200,9 +312,18 @@ export class WorldGenerator {
               const c = trilinear(gridC, gx, gy, gz, fx, fy, fz);
               cave = isCave(1, 1, c, y);
             }
-            if (cave) {
+            if (!cave) continue;
+            carved = true;
+            // Kristalle (farbiges Licht) auf dem Höhlenboden tiefer Grotten.
+            const below = ly > 0 ? arr[li - 1024]! : B.stone;
+            if (
+              y < CRYSTAL_MAX_Y &&
+              (below === B.stone || below === B.basalt) &&
+              hashToUnit(hash3(this.seed ^ 0xc5, baseX + x, y, baseZ + z)) < 0.035
+            ) {
+              arr[li] = B.crystal;
+            } else {
               arr[li] = AIR;
-              carved = true;
             }
           }
         }
@@ -211,18 +332,18 @@ export class WorldGenerator {
     }
   }
 
-  /** Deterministischer Baum-Standort? (nur auf Gras im Hainland, Abstand per Raster + Jitter) */
-  treeAt(wx: number, wz: number): number {
-    // Raster 6×6 mit Jitter: je Zelle maximal ein Baum.
+  /** Deterministischer Baum-Standort je Biom (Raster 6×6 + Jitter); 0 = kein Baum. */
+  treeAt(wx: number, wz: number, biome: number = Biome.Hainland): number {
+    const spec = treeSpecFor(biome);
+    if (!spec) return 0;
     const cellX = Math.floor(wx / 6);
     const cellZ = Math.floor(wz / 6);
     const h = hash2(this.treeSeed, cellX, cellZ);
-    if (hashToUnit(h) > 0.55) return 0; // Zelle leer
+    if (hashToUnit(h) > spec.density) return 0;
     const jx = (h >>> 8) % 6;
     const jz = (h >>> 16) % 6;
     if (cellX * 6 + jx !== wx || cellZ * 6 + jz !== wz) return 0;
-    const height = 4 + ((h >>> 24) % 3); // Stammhöhe 4–6
-    return height;
+    return spec.minTrunk + ((h >>> 24) % (spec.maxTrunk - spec.minTrunk + 1));
   }
 
   private placeTrees(col: Column, baseX: number, baseZ: number): void {
@@ -232,8 +353,6 @@ export class WorldGenerator {
       for (let dx = -TREE_RADIUS; dx < CHUNK_SIZE + TREE_RADIUS; dx++) {
         const wx = baseX + dx;
         const wz = baseZ + dz;
-        const trunk = this.treeAt(wx, wz);
-        if (trunk === 0) continue;
         const inside = dx >= 0 && dx < CHUNK_SIZE && dz >= 0 && dz < CHUNK_SIZE;
         let h: number;
         let biome: number;
@@ -241,13 +360,26 @@ export class WorldGenerator {
           const i = dx + dz * CHUNK_SIZE;
           h = col.height[i]!;
           biome = col.biome[i]!;
+          // Tümpel-Zellen tragen keine Bäume (Oberfläche unter Wasser).
+          if (columnGet(col, dx, h + 1, dz) === B.water) continue;
         } else {
           const c = t.climate(wx, wz);
           h = t.heightFromClimate(wx, wz, c);
           biome = t.biomeAt(h, c);
+          if (biome === Biome.Nebelmoor && h > SEA_LEVEL + 3 && t.poolAt(wx, wz)) continue;
         }
-        if (biome !== Biome.Hainland || h >= SNOW_LINE || h <= SEA_LEVEL + 2) continue;
-        this.stampTree(col, dx, h + 1, dz, trunk, B);
+        const spec = treeSpecFor(biome);
+        if (!spec) continue;
+        const trunk = this.treeAt(wx, wz, biome);
+        if (trunk === 0) continue;
+        if (h >= SNOW_LINE + 10 || h <= SEA_LEVEL + 2) continue;
+        const leaves =
+          spec.kind === 'bluete'
+            ? B.blossomLeaves
+            : spec.kind === 'nadel'
+              ? B.needleLeaves
+              : B.leaves;
+        this.stampTree(col, dx, h + 1, dz, trunk, CROWN[spec.kind], leaves, B.log);
       }
     }
   }
@@ -258,12 +390,13 @@ export class WorldGenerator {
     baseY: number,
     lz: number,
     trunk: number,
-    B: WorldBlocks,
+    crown: readonly (readonly [number, number, number])[],
+    leaves: number,
+    log: number,
   ): void {
     const top = baseY + trunk;
-    // Krone: gerundete Schichten (Radius, max. Distanz²) von unten nach oben.
-    for (let k = 0; k < CROWN_LAYERS.length; k++) {
-      const [dy, r, maxD2] = CROWN_LAYERS[k]!;
+    for (let k = 0; k < crown.length; k++) {
+      const [dy, r, maxD2] = crown[k]!;
       const y = top + dy;
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -271,12 +404,12 @@ export class WorldGenerator {
           const x = lx + dx;
           const z = lz + dz;
           if (x < 0 || x >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) continue;
-          if (columnGet(col, x, y, z) === AIR) columnSet(col, x, y, z, B.leaves);
+          if (columnGet(col, x, y, z) === AIR) columnSet(col, x, y, z, leaves);
         }
       }
     }
     if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
-      for (let y = baseY; y <= top; y++) columnSet(col, lx, y, lz, B.log);
+      for (let y = baseY; y <= top; y++) columnSet(col, lx, y, lz, log);
     }
   }
 }

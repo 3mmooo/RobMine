@@ -52,7 +52,9 @@ describe('Weltgen v1', () => {
             above === AIR ||
             above === blocks.water ||
             above === blocks.log ||
-            above === blocks.leaves;
+            above === blocks.leaves ||
+            above === blocks.blossomLeaves ||
+            above === blocks.needleLeaves;
           expect(okAbove).toBe(true);
           expect(columnGet(col, x, 0, z)).toBe(blocks.bedrock);
         }

@@ -28,6 +28,10 @@
 
 **Perf-Bericht des Users (echte GPU):** ausstehend – bitte F3 → „Bericht kopieren" hier eintragen.
 
+## Session 2 – 2026-11-03 – Phase 1 kompakt
+
+Allein, ohne Agenten. Neu: 9 Oberflächen-Biome (Hainland, Flüsterwald mit Riesenbäumen, Blütental mit rosa Kronen, Glasdünen, Nebelmoor mit Tümpeln, Frostkamm mit Nadelbäumen, Himmelsgrat, Sternenmeer/Perlküste, Aschenfeld mit Basalt), Kristalle in tiefen Höhlen (farbiges Licht), Wasser mit Tiefenfarbe und Uferschaum (Tiefe im Vertex, aus der Höhenkarte), Spielerphysik (`core/physics/player.ts`: AABB, Schwerkraft, Sprung, automatische Stufe, Schwimmen) – Laufmodus ist Standard, **F** schaltet auf Fliegen. 71 Tests, Bench und E2E grün.
+
 ## Session 1b – 2026-11-03 – Adversarialer Review von Phase 0
 
 3 unabhängige Reviewer (core / client / protokoll+tooling) + je Fund ein Skeptiker: 14 Funde, 10 bestätigt, alle behoben.

@@ -65,6 +65,23 @@ export function testRegistry(): {
     solid: false,
     light: [14, 11, 6],
   });
+  const simple = (
+    id: number,
+    name: string,
+    extra: Partial<Parameters<typeof reg.register>[0]> = {},
+  ) => reg.register({ id, name, label: name, colorSide: [100, 100, 100], ...extra });
+  const forestGrass = simple(13, 'forest_grass');
+  const blossomGrass = simple(14, 'blossom_grass');
+  const blossomLeaves = simple(15, 'blossom_leaves', {
+    opaque: false,
+    cutout: true,
+    attenuation: 1,
+  });
+  const needleLeaves = simple(16, 'needle_leaves', { opaque: false, cutout: true, attenuation: 1 });
+  const moorGrass = simple(17, 'moor_grass');
+  const ash = simple(18, 'ash');
+  const basalt = simple(19, 'basalt');
+  const crystal = simple(20, 'crystal', { opaque: false, cutout: true, light: [10, 7, 15] });
   return {
     reg,
     blocks: {
@@ -78,6 +95,14 @@ export function testRegistry(): {
       leaves: leaves.id,
       snow: snow.id,
       bedrock: bedrock.id,
+      forestGrass: forestGrass.id,
+      blossomGrass: blossomGrass.id,
+      blossomLeaves: blossomLeaves.id,
+      needleLeaves: needleLeaves.id,
+      moorGrass: moorGrass.id,
+      ash: ash.id,
+      basalt: basalt.id,
+      crystal: crystal.id,
     },
     glass: glass.id,
     torch: torch.id,

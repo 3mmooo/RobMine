@@ -91,6 +91,7 @@ varying vec3 vRmWorldPos;
 flat varying vec3 vRmWorldNormal;
 uniform float uBlockLightBoost;
 uniform float uSkyLightFloor;
+uniform float uTime;
 
 float rmHash13( vec3 p ) {
   p = fract( p * 0.1031 );
@@ -109,10 +110,23 @@ const FRAGMENT_COLOR = /* glsl */ `
   // ±4 % Helligkeit, leichte Farbton-Drift je Block gegen Monotonie
   diffuseColor.rgb *= 0.96 + 0.08 * rmJ;
   diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.02, 1.0, 0.98 ), rmJ - 0.5 );
+#ifdef RM_FLUID
+  // Wasser: Tiefe (v der Oberseite) färbt und trübt, am Ufer heller Schaum.
+  int rmFl = int( vRmFlags + 0.5 );
+  float rmDepth = ( ( rmFl & 2 ) != 0 ) ? clamp( vRmQuadUv.y / 10.0, 0.0, 1.0 ) : 1.0;
+  vec3 rmShallow = diffuseColor.rgb * vec3( 1.15, 1.25, 1.2 );
+  vec3 rmDeep = diffuseColor.rgb * vec3( 0.3, 0.45, 0.7 );
+  diffuseColor.rgb = mix( rmShallow, rmDeep, rmDepth );
+  float rmFoam = ( 1.0 - smoothstep( 0.0, 0.14, rmDepth ) )
+    * ( 0.55 + 0.45 * sin( uTime * 2.2 + ( vRmWorldPos.x + vRmWorldPos.z ) * 2.5 ) );
+  diffuseColor.rgb += vec3( 0.35 ) * rmFoam;
+  diffuseColor.a = mix( 0.55, 0.9, rmDepth );
+#else
   // Weicher Kantenbevel je Block (quad-lokale Koordinaten, fract = Blockgrenze)
   vec2 rmF = fract( vRmQuadUv );
   float rmEdge = min( min( rmF.x, 1.0 - rmF.x ), min( rmF.y, 1.0 - rmF.y ) );
   diffuseColor.rgb *= 0.93 + 0.07 * smoothstep( 0.0, 0.09, rmEdge );
+#endif
   // Muster: Gras-Sprenkel (3), Stein-Korn (1) – subtil
   int rmPatternI = int( vRmPattern + 0.5 );
   if ( rmPatternI == 3 ) {

@@ -7,6 +7,7 @@ import {
   chunkHasBlocks,
   type ChunkMesh,
   type Column,
+  columnGet,
   columnKey,
   createPaddedChunk,
 } from '@robmine/core';
@@ -269,12 +270,18 @@ export class ChunkManager {
         e.meshingMask |= bit;
         const blocks = this.padded.blocks.slice();
         const light = this.padded.light.slice();
+        const height = this.padded.height.slice();
+        const baseY = this.padded.baseY;
         const key = chunkKey(e.cx, cy, e.cz);
         const priority = dx * dx + dz * dz;
         this.meshPool
           .run(
-            { key, cx: e.cx, cy, cz: e.cz, blocks, light },
-            [blocks.buffer as ArrayBuffer, light.buffer as ArrayBuffer],
+            { key, cx: e.cx, cy, cz: e.cz, blocks, light, height, baseY },
+            [
+              blocks.buffer as ArrayBuffer,
+              light.buffer as ArrayBuffer,
+              height.buffer as ArrayBuffer,
+            ],
             priority,
           )
           .then((res) => {
@@ -434,6 +441,19 @@ export class ChunkManager {
       cutoutEntries: this.renderer.cutout.chunkCount,
       fluidEntries: this.renderer.fluid.chunkCount,
     };
+  }
+
+  /** Blockwert an Weltposition (AIR, wenn die Spalte nicht geladen ist). */
+  getBlock(x: number, y: number, z: number): number {
+    const e = this.columns.get(columnKey(x >> CHUNK_BITS, z >> CHUNK_BITS));
+    if (!e || !e.col) return 0;
+    return columnGet(e.col, x & (CHUNK_SIZE - 1), y, z & (CHUNK_SIZE - 1));
+  }
+
+  /** Ist die Spalte an dieser Weltposition geladen? */
+  isLoadedAt(x: number, z: number): boolean {
+    const e = this.columns.get(columnKey(x >> CHUNK_BITS, z >> CHUNK_BITS));
+    return !!e && e.state === 'ready';
   }
 
   /** Höhe der Oberfläche an Weltposition, falls die Spalte geladen ist. */

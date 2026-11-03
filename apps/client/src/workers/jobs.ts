@@ -39,6 +39,10 @@ export interface MeshRequest {
   cz: number;
   blocks: Uint16Array; // 34³
   light: Uint16Array; // 34³
+  /** Oberflächenhöhe je (x,z) der Spalte (Wassertiefe). */
+  height: Uint8Array;
+  /** Welt-y der untersten Lage des Chunks. */
+  baseY: number;
 }
 
 export interface MeshResponse {

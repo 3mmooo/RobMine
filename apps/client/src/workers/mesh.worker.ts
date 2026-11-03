@@ -7,7 +7,10 @@ const registry = createBlockRegistry();
 
 serveWorker<MeshRequest, MeshResponse>((req) => {
   const t0 = performance.now();
-  const mesh = meshChunk({ blocks: req.blocks, light: req.light }, registry);
+  const mesh = meshChunk(
+    { blocks: req.blocks, light: req.light, height: req.height, baseY: req.baseY },
+    registry,
+  );
   const ms = performance.now() - t0;
   return {
     res: { key: req.key, cx: req.cx, cy: req.cy, cz: req.cz, mesh, ms },

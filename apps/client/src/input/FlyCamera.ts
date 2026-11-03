@@ -1,4 +1,5 @@
 import { type PerspectiveCamera, Vector3 } from 'three';
+import { type BlockQuery, createPlayerState, PLAYER, stepPlayer } from '@robmine/core';
 
 export type LookMode = 'none' | 'locked' | 'drag' | 'touch';
 
@@ -22,6 +23,12 @@ export class FlyCamera {
   readonly position = new Vector3();
   /** Wird aufgerufen, wenn sich die Art des Umsehens ändert (für HUD-Hinweise). */
   onModeChange: ((mode: LookMode) => void) | null = null;
+  /** Laufmodus: Schwerkraft + Kollision (F schaltet um), sonst Flug. */
+  walk = false;
+  isSolid: BlockQuery | null = null;
+  isFluid: BlockQuery | null = null;
+  readonly player = createPlayerState(0, 0, 0);
+  onWalkChange: ((walk: boolean) => void) | null = null;
   private mode: LookMode = 'none';
   private interacted = false;
   private readonly keys = new Set<string>();
@@ -114,6 +121,7 @@ export class FlyCamera {
     window.addEventListener('keydown', (e) => {
       if (!this.enabled) return;
       if (e.code === 'Space') e.preventDefault();
+      if (e.code === 'KeyF' && !e.repeat) this.setWalk(!this.walk);
       this.keys.add(e.code);
       this.markInteracted();
     });
@@ -138,10 +146,54 @@ export class FlyCamera {
     this.position.set(x, y, z);
     this.yaw = yaw;
     this.pitch = pitch;
+    this.syncPlayerFromCamera();
     this.apply();
   }
 
+  /** Laufen (true) oder Fliegen (false); beim Umschalten wird die Position übernommen. */
+  setWalk(walk: boolean): void {
+    if (walk && (!this.isSolid || !this.isFluid)) return;
+    if (this.walk === walk) return;
+    this.walk = walk;
+    this.syncPlayerFromCamera();
+    this.onWalkChange?.(walk);
+  }
+
+  private syncPlayerFromCamera(): void {
+    const p = this.player;
+    p.x = this.position.x;
+    p.y = this.position.y - PLAYER.eyeHeight;
+    p.z = this.position.z;
+    p.vx = p.vy = p.vz = 0;
+    p.onGround = false;
+  }
+
   update(dt: number): void {
+    if (this.enabled && this.walk && this.isSolid && this.isFluid) {
+      let moveX = this.touchMove.x;
+      let moveZ = -this.touchMove.y;
+      if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) moveZ += 1;
+      if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) moveZ -= 1;
+      if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) moveX += 1;
+      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) moveX -= 1;
+      if (moveX !== 0 || moveZ !== 0) this.markInteracted();
+      stepPlayer(
+        this.player,
+        {
+          moveX,
+          moveZ,
+          yaw: this.yaw,
+          jump: this.keys.has('Space'),
+          sprint: this.keys.has('ControlLeft') || this.keys.has('ControlRight'),
+        },
+        dt,
+        this.isSolid,
+        this.isFluid,
+      );
+      this.position.set(this.player.x, this.player.y + PLAYER.eyeHeight, this.player.z);
+      this.apply();
+      return;
+    }
     if (this.enabled) {
       const cy = Math.cos(this.yaw);
       const sy = Math.sin(this.yaw);

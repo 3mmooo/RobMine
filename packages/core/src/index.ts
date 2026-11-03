@@ -13,3 +13,4 @@ export * from './mesh/padded.ts';
 export * from './worldgen/v1/biomes.ts';
 export * from './worldgen/v1/terrain.ts';
 export * from './worldgen/v1/pipeline.ts';
+export * from './physics/player.ts';

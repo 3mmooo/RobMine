@@ -1,4 +1,5 @@
-import { normalizeSeed } from '@robmine/core';
+import { normalizeSeed, PLAYER, RenderPass } from '@robmine/core';
+import { createBlockRegistry } from '@robmine/content';
 import { PortTransport } from '@robmine/protocol';
 import { Renderer, type QualityLevel } from './render/Renderer.ts';
 import { ChunkManager } from './world/ChunkManager.ts';
@@ -109,7 +110,14 @@ async function main(): Promise<void> {
     renderer.preset.radius,
   );
 
-  // Startpose: Spawn oder Deterministik-Kamera.
+  // Kollision/Wasser für den Laufmodus aus den geladenen Spalten.
+  const registry = createBlockRegistry();
+  fly.isSolid = (x, y, z) => registry.solid[chunks.getBlock(x, y, z) & 0xfff] === 1;
+  fly.isFluid = (x, y, z) => registry.pass[chunks.getBlock(x, y, z) & 0xfff] === RenderPass.Fluid;
+
+  // Startpose: Spawn oder Deterministik-Kamera. Ohne feste Kamera: sobald die Spawn-Spalte
+  // geladen ist, auf den Boden setzen und in den Laufmodus wechseln.
+  let spawned = !!params.cam;
   if (params.cam)
     fly.setPose(params.cam[0], params.cam[1], params.cam[2], params.cam[3], params.cam[4]);
   else fly.setPose(welcome.spawn[0], welcome.spawn[1], welcome.spawn[2], -0.6, -0.22);
@@ -175,9 +183,15 @@ async function main(): Promise<void> {
     if (!hint || hintHidden) return;
     if (mode === 'drag')
       hint.textContent =
-        'Maus gedrückt halten zum Umsehen · WASD bewegen · Leertaste/Shift hoch/runter · Strg schnell · F3 Statistik';
+        'Maus gedrückt halten zum Umsehen · WASD laufen · Leertaste springen · Strg rennen · F fliegen/laufen · F3 Statistik';
     else if (mode === 'touch')
-      hint.textContent = 'Links wischen = fliegen · rechts wischen = umsehen';
+      hint.textContent = 'Links wischen = laufen · rechts wischen = umsehen';
+  };
+  fly.onWalkChange = (walk) => {
+    if (!hint || hintHidden) return;
+    hint.textContent = walk
+      ? 'WASD laufen · Leertaste springen · Strg rennen · F fliegen · F3 Statistik'
+      : 'WASD fliegen · Leertaste/Shift hoch/runter · Strg schnell · F laufen · F3 Statistik';
   };
 
   function frame(now: number, force = false): void {
@@ -187,6 +201,16 @@ async function main(): Promise<void> {
       elapsed += dt;
       timeOfDay = (timeOfDay + dt) % 1440;
       if (api.frames % 4 === 0) renderer.setTimeOfDay(timeOfDay);
+    }
+    if (!spawned) {
+      const sx = Math.floor(fly.position.x);
+      const sz = Math.floor(fly.position.z);
+      const h = chunks.surfaceHeight(sx, sz);
+      if (h !== undefined && chunks.isLoadedAt(sx, sz)) {
+        fly.setPose(fly.position.x, h + 1.01 + PLAYER.eyeHeight, fly.position.z, fly.yaw, -0.1);
+        fly.setWalk(true);
+        spawned = true;
+      }
     }
     fly.update(dt);
     chunks.update(fly.position.x, fly.position.z);

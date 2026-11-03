@@ -31,6 +31,10 @@ export function buildPaddedChunk(
 ): boolean {
   const { blocks, light } = out;
   let anyBlock = false;
+  const center = lookup(cx, cz);
+  if (center) out.height.set(center.height);
+  else out.height.fill(0);
+  out.baseY = cy << CHUNK_BITS;
 
   for (let pz = -1; pz <= CHUNK_SIZE; pz++) {
     const ncz = cz + (pz < 0 ? -1 : pz >= CHUNK_SIZE ? 1 : 0);

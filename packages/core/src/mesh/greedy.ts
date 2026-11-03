@@ -33,11 +33,23 @@ import {
 export interface PaddedChunk {
   blocks: Uint16Array; // PADDED_VOLUME
   light: Uint16Array; // PADDED_VOLUME
+  /** Oberflächenhöhe der Spalte je (x,z) – für die Wassertiefe. */
+  height: Uint8Array; // CHUNK_SIZE²
+  /** Welt-y der untersten Lage des Chunks. */
+  baseY: number;
 }
 
 export function createPaddedChunk(): PaddedChunk {
-  return { blocks: new Uint16Array(PADDED_VOLUME), light: new Uint16Array(PADDED_VOLUME) };
+  return {
+    blocks: new Uint16Array(PADDED_VOLUME),
+    light: new Uint16Array(PADDED_VOLUME),
+    height: new Uint8Array(CHUNK_SIZE * CHUNK_SIZE),
+    baseY: 0,
+  };
 }
+
+/** Maximale im Vertex kodierte Wassertiefe. */
+export const MAX_WATER_DEPTH = 31;
 
 interface Direction {
   normal: number;
@@ -65,6 +77,8 @@ const STRIDE = [1, PADDED_AREA, PADDED_SIZE] as const; // Schritt je Achse im ge
 const maskType = new Uint16Array(CHUNK_SIZE * CHUNK_SIZE);
 const maskAo = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
 const maskFlags = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+/** Zusatzwert je Fläche (Wassertiefe bei Fluid-Oberseiten), Teil des Merge-Schlüssels. */
+const maskExtra = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
 const maskL0 = new Uint16Array(CHUNK_SIZE * CHUNK_SIZE);
 const maskL1 = new Uint16Array(CHUNK_SIZE * CHUNK_SIZE);
 const maskL2 = new Uint16Array(CHUNK_SIZE * CHUNK_SIZE);
@@ -122,9 +136,16 @@ export function meshChunk(input: PaddedChunk, reg: BlockRegistry): ChunkMesh {
           // Flags
           let flags = 0;
           if (reg.isEmissive(t)) flags |= FLAG_EMISSIVE;
-          if (p === RenderPass.Fluid && normal === NORMAL_PY) flags |= FLAG_FLUID_TOP;
+          let extra = 0;
+          if (p === RenderPass.Fluid && normal === NORMAL_PY) {
+            flags |= FLAG_FLUID_TOP;
+            // Wassertiefe: Abstand von der Oberfläche zum Spaltenboden.
+            const floorY = input.height[pos[0]! + pos[2]! * CHUNK_SIZE]!;
+            extra = Math.max(0, Math.min(MAX_WATER_DEPTH, input.baseY + slice - floorY));
+          }
           if (p === RenderPass.Cutout) flags |= FLAG_WIND;
           maskFlags[m] = flags;
+          maskExtra[m] = extra;
 
           // AO + Licht je Ecke. Ecken in Quad-Reihenfolge:
           // 0 (−u,−v), 1 (+u,−v), 2 (+u,+v), 3 (−u,+v)
@@ -153,6 +174,7 @@ export function meshChunk(input: PaddedChunk, reg: BlockRegistry): ChunkMesh {
           }
           const ao = maskAo[m]!;
           const fl = maskFlags[m]!;
+          const ex = maskExtra[m]!;
           const l0 = maskL0[m]!;
           const l1 = maskL1[m]!;
           const l2 = maskL2[m]!;
@@ -160,18 +182,18 @@ export function meshChunk(input: PaddedChunk, reg: BlockRegistry): ChunkMesh {
 
           // Breite
           let w = 1;
-          while (a + w < CHUNK_SIZE && sameFace(m + w, t, ao, fl, l0, l1, l2, l3)) w++;
+          while (a + w < CHUNK_SIZE && sameFace(m + w, t, ao, fl, ex, l0, l1, l2, l3)) w++;
           // Höhe
           let h = 1;
           outer: while (b + h < CHUNK_SIZE) {
             const row = m + h * CHUNK_SIZE;
             for (let k = 0; k < w; k++) {
-              if (!sameFace(row + k, t, ao, fl, l0, l1, l2, l3)) break outer;
+              if (!sameFace(row + k, t, ao, fl, ex, l0, l1, l2, l3)) break outer;
             }
             h++;
           }
 
-          emitQuad(reg, dir, slice, a, b, w, h, t, ao, fl, l0, l1, l2, l3);
+          emitQuad(reg, dir, slice, a, b, w, h, t, ao, fl, ex, l0, l1, l2, l3);
           quadCount++;
 
           // Maske leeren
@@ -198,6 +220,7 @@ function sameFace(
   t: number,
   ao: number,
   fl: number,
+  ex: number,
   l0: number,
   l1: number,
   l2: number,
@@ -207,6 +230,7 @@ function sameFace(
     maskType[m] === t &&
     maskAo[m] === ao &&
     maskFlags[m] === fl &&
+    maskExtra[m] === ex &&
     maskL0[m] === l0 &&
     maskL1[m] === l1 &&
     maskL2[m] === l2 &&
@@ -321,12 +345,17 @@ function emitQuad(
   t: number,
   ao: number,
   flags: number,
+  extra: number,
   l0: number,
   l1: number,
   l2: number,
   l3: number,
 ): void {
   const p = reg.pass[t]!;
+  // Fluid-Oberseiten tragen in v die Wassertiefe statt der Quad-Koordinate.
+  const fluidTop = (flags & FLAG_FLUID_TOP) !== 0;
+  const qv0 = fluidTop ? extra : 0;
+  const qvh = fluidTop ? extra : h;
   const builder =
     p === RenderPass.Fluid
       ? builders.fluid
@@ -364,7 +393,7 @@ function emitQuad(
     ao0,
     pattern,
     0,
-    0,
+    qv0,
     l0,
     r,
     g,
@@ -383,7 +412,7 @@ function emitQuad(
     ao1,
     pattern,
     w,
-    0,
+    qv0,
     l1,
     r,
     g,
@@ -402,7 +431,7 @@ function emitQuad(
     ao2,
     pattern,
     w,
-    h,
+    qvh,
     l2,
     r,
     g,
@@ -421,7 +450,7 @@ function emitQuad(
     ao3,
     pattern,
     0,
-    h,
+    qvh,
     l3,
     r,
     g,

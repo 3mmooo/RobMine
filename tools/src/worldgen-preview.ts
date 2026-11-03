@@ -98,17 +98,23 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([len, typeBuf, data, crc]);
 }
 
-let crcTable: Uint32Array | null = null;
 function crc32(buf: Buffer): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      crcTable[n] = c >>> 0;
-    }
-  }
+  const table = crcTable();
   let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8);
+  for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
+}
+
+// Funktionen sind gehoisted – die Tabelle wird beim ersten Aufruf gebaut (kein TDZ-Problem).
+function crcTable(): Uint32Array {
+  const cached = (crcTable as unknown as { table?: Uint32Array }).table;
+  if (cached) return cached;
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  (crcTable as unknown as { table?: Uint32Array }).table = t;
+  return t;
 }

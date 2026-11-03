@@ -128,8 +128,12 @@ describe('Greedy Mesher', () => {
     let topFlag = false;
     for (let i = 0; i < m.fluid!.vertexCount; i++) {
       const d = m.fluid!.data[i * 4]!;
-      if ((d & 7) === NORMAL_PY) expect(d >>> 3).toBe(FLAG_FLUID_TOP);
-      if ((d & 7) === NORMAL_PY) topFlag = true;
+      if ((d & 7) === NORMAL_PY) {
+        expect(d >>> 3).toBe(FLAG_FLUID_TOP);
+        // Wassertiefe in v: Oberfläche y=2 über Spaltenboden 0 (Testhöhe) → 2
+        expect(m.fluid!.data[i * 4 + 3]).toBe(2);
+        topFlag = true;
+      }
     }
     expect(topFlag).toBe(true);
     // Zwei Blätterblöcke: innere Fläche verdeckt, Außenflächen verschmolzen → 6 Quads; Glas: 6 Quads

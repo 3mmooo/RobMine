@@ -19,6 +19,13 @@ export const BLOCK = {
   Glas: 13,
   Ambritlampe: 14,
   Kristall: 15,
+  Waldgras: 16,
+  Bluetengras: 17,
+  Bluetenblaetter: 18,
+  Nadelblaetter: 19,
+  Moorgras: 20,
+  Asche: 21,
+  Basalt: 22,
 } as const;
 
 /** Material-Muster-IDs für den Fragment-Shader. */
@@ -172,6 +179,74 @@ export function createBlockRegistry(): BlockRegistry {
     cutout: true,
     light: [10, 7, 15],
   });
+  reg.register({
+    id: BLOCK.Waldgras,
+    name: 'waldgras',
+    label: 'Waldboden',
+    colorTop: hexToRgb(PALETTE.forestGrassTop),
+    colorSide: hexToRgb(PALETTE.forestGrassSide),
+    colorBottom: hexToRgb(PALETTE.dirt),
+    hardness: 0.6,
+    pattern: PATTERN.Grass,
+  });
+  reg.register({
+    id: BLOCK.Bluetengras,
+    name: 'bluetengras',
+    label: 'Blütenwiese',
+    colorTop: hexToRgb(PALETTE.blossomGrassTop),
+    colorSide: hexToRgb(PALETTE.blossomGrassSide),
+    colorBottom: hexToRgb(PALETTE.dirt),
+    hardness: 0.6,
+    pattern: PATTERN.Grass,
+  });
+  reg.register({
+    id: BLOCK.Bluetenblaetter,
+    name: 'bluetenblaetter',
+    label: 'Blütenkrone',
+    colorSide: hexToRgb(PALETTE.blossomLeaves),
+    hardness: 0.2,
+    opaque: false,
+    cutout: true,
+    attenuation: 1,
+    pattern: PATTERN.Leaves,
+  });
+  reg.register({
+    id: BLOCK.Nadelblaetter,
+    name: 'nadelblaetter',
+    label: 'Nadelkrone',
+    colorSide: hexToRgb(PALETTE.needleLeaves),
+    hardness: 0.2,
+    opaque: false,
+    cutout: true,
+    attenuation: 1,
+    pattern: PATTERN.Leaves,
+  });
+  reg.register({
+    id: BLOCK.Moorgras,
+    name: 'moorgras',
+    label: 'Moorboden',
+    colorTop: hexToRgb(PALETTE.moorGrassTop),
+    colorSide: hexToRgb(PALETTE.moorGrassSide),
+    colorBottom: hexToRgb(PALETTE.dirt),
+    hardness: 0.5,
+    pattern: PATTERN.Grass,
+  });
+  reg.register({
+    id: BLOCK.Asche,
+    name: 'asche',
+    label: 'Asche',
+    colorSide: hexToRgb(PALETTE.ash),
+    hardness: 0.4,
+    pattern: PATTERN.Sand,
+  });
+  reg.register({
+    id: BLOCK.Basalt,
+    name: 'basalt',
+    label: 'Basalt',
+    colorSide: hexToRgb(PALETTE.basalt),
+    hardness: 1.8,
+    pattern: PATTERN.Stone,
+  });
   return reg;
 }
 
@@ -187,4 +262,12 @@ export const WORLD_BLOCKS: WorldBlocks = {
   leaves: BLOCK.HainBlaetter,
   snow: BLOCK.Schnee,
   bedrock: BLOCK.Urgestein,
+  forestGrass: BLOCK.Waldgras,
+  blossomGrass: BLOCK.Bluetengras,
+  blossomLeaves: BLOCK.Bluetenblaetter,
+  needleLeaves: BLOCK.Nadelblaetter,
+  moorGrass: BLOCK.Moorgras,
+  ash: BLOCK.Asche,
+  basalt: BLOCK.Basalt,
+  crystal: BLOCK.Kristall,
 };
