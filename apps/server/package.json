@@ -1,0 +1,23 @@
+{
+  "name": "@robmine/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Spielserver: eine Welt (Instanz), WebSocket, Speicherung veränderter Spalten auf der Festplatte.",
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@robmine/content": "workspace:*",
+    "@robmine/core": "workspace:*",
+    "@robmine/protocol": "workspace:*",
+    "@robmine/sim": "workspace:*",
+    "ws": "8.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/ws": "8.18.1"
+  }
+}

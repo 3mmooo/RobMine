@@ -12,12 +12,54 @@ export function encodeMessage(w: ByteWriter, m: Message): void {
         const at = w.length;
         w.u32(0);
         const start = w.length;
-        w.u16(m.protoVer).str(m.token).str(m.clientBuild);
+        w.u16(m.protoVer).str(m.token).str(m.clientBuild).str(m.name);
         w.patchU32(at, w.length - start);
       }
       break;
     case 'Ping':
       w.u8(Op.Ping).u32(4).u32(m.clientTime);
+      break;
+    case 'PlayerMove':
+      w.u8(Op.PlayerMove).u32(20).f32(m.x).f32(m.y).f32(m.z).f32(m.yaw).f32(m.pitch);
+      break;
+    case 'Chat':
+      w.u8(Op.Chat);
+      {
+        const at = w.length;
+        w.u32(0);
+        const start = w.length;
+        w.str(m.text);
+        w.patchU32(at, w.length - start);
+      }
+      break;
+    case 'Players':
+      w.u8(Op.Players)
+        .u32(2 + m.players.length * 22)
+        .u16(m.players.length);
+      for (const p of m.players) w.u16(p.id).f32(p.x).f32(p.y).f32(p.z).f32(p.yaw).f32(p.pitch);
+      break;
+    case 'PlayerJoin':
+      w.u8(Op.PlayerJoin);
+      {
+        const at = w.length;
+        w.u32(0);
+        const start = w.length;
+        w.u16(m.id).str(m.name);
+        w.patchU32(at, w.length - start);
+      }
+      break;
+    case 'PlayerLeave':
+      w.u8(Op.PlayerLeave).u32(2).u16(m.id);
+      break;
+    case 'ChatMessage':
+      w.u8(Op.ChatMessage);
+      {
+        const at = w.length;
+        w.u32(0);
+        const start = w.length;
+        w.u16(m.from).str(m.name).str(m.text);
+        w.patchU32(at, w.length - start);
+      }
       break;
     case 'ChunkRequest':
       w.u8(Op.ChunkRequest).u32(8).i32(m.cx).i32(m.cz);
@@ -91,10 +133,46 @@ export function decodeMessage(r: ByteReader): Message {
   let msg: Message;
   switch (op) {
     case Op.Hello:
-      msg = { op: 'Hello', protoVer: r.u16(), token: r.str(), clientBuild: r.str() };
+      msg = {
+        op: 'Hello',
+        protoVer: r.u16(),
+        token: r.str(),
+        clientBuild: r.str(),
+        name: r.str(),
+      };
       break;
     case Op.Ping:
       msg = { op: 'Ping', clientTime: r.u32() };
+      break;
+    case Op.PlayerMove:
+      msg = { op: 'PlayerMove', x: r.f32(), y: r.f32(), z: r.f32(), yaw: r.f32(), pitch: r.f32() };
+      break;
+    case Op.Chat:
+      msg = { op: 'Chat', text: r.str() };
+      break;
+    case Op.Players: {
+      const n = r.u16();
+      const players = [];
+      for (let i = 0; i < n; i++)
+        players.push({
+          id: r.u16(),
+          x: r.f32(),
+          y: r.f32(),
+          z: r.f32(),
+          yaw: r.f32(),
+          pitch: r.f32(),
+        });
+      msg = { op: 'Players', players };
+      break;
+    }
+    case Op.PlayerJoin:
+      msg = { op: 'PlayerJoin', id: r.u16(), name: r.str() };
+      break;
+    case Op.PlayerLeave:
+      msg = { op: 'PlayerLeave', id: r.u16() };
+      break;
+    case Op.ChatMessage:
+      msg = { op: 'ChatMessage', from: r.u16(), name: r.str(), text: r.str() };
       break;
     case Op.ChunkRequest:
       msg = { op: 'ChunkRequest', cx: r.i32(), cz: r.i32() };

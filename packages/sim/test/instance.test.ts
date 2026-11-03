@@ -43,6 +43,7 @@ const hello = (): Message => ({
   protoVer: PROTOCOL_VERSION,
   token: '',
   clientBuild: 'test',
+  name: 'Tester',
 });
 
 describe('LocalInstance', () => {
@@ -69,7 +70,9 @@ describe('LocalInstance', () => {
     const [client, server] = createLoopbackPair();
     const inst = new LocalInstance(server, { seed: 1, spawn: [0, 0, 0] });
     const { next, closed } = collect(client);
-    client.send(encodeFrame(0, [{ op: 'Hello', protoVer: 99, token: '', clientBuild: 'test' }]));
+    client.send(
+      encodeFrame(0, [{ op: 'Hello', protoVer: 99, token: '', clientBuild: 'test', name: 'X' }]),
+    );
     const msgs = await next();
     expect(msgs[0]!.op).toBe('Kick');
     await closed;

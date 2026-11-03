@@ -319,6 +319,62 @@
           opacity: 0;
         }
       }
+      .name-labels {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+      .name-label {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 2px 8px;
+        border-radius: 8px;
+        background: rgba(20, 24, 40, 0.55);
+        font-size: 13px;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .chat-log {
+        position: fixed;
+        left: 12px;
+        bottom: 150px;
+        max-width: min(460px, 80vw);
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        pointer-events: none;
+      }
+      .chat-line {
+        padding: 4px 8px;
+        border-radius: 8px;
+        background: rgba(20, 24, 40, 0.55);
+        font-size: 14px;
+        transition: opacity 1s;
+      }
+      .chat-line.system {
+        color: var(--accent);
+      }
+      .chat-line.fade {
+        opacity: 0;
+      }
+      .chat-input {
+        position: fixed;
+        left: 12px;
+        bottom: 116px;
+        width: min(460px, 80vw);
+        padding: 8px 10px;
+        border: 2px solid var(--accent);
+        border-radius: 10px;
+        background: rgba(20, 24, 40, 0.85);
+        color: var(--paper);
+        font: inherit;
+        font-size: 14px;
+        outline: none;
+      }
+      .chat-input.hidden {
+        display: none;
+      }
       .death {
         position: fixed;
         inset: 0;

@@ -30,6 +30,18 @@ Dann `http://127.0.0.1:5173` öffnen, in das Fenster klicken und fliegen: **WASD
 | `cam`     | Kamera `x,y,z,yaw,pitch`                                                 | `?cam=12,92,20,-0.65,-0.28` |
 | `debug`   | `1` = Overlay sofort sichtbar                                            | `?debug=1`                  |
 
+### Mehrspieler
+
+```bash
+pnpm build
+```
+
+```bash
+STATIC_DIR=apps/client/dist pnpm server
+```
+
+Dann `http://<IP>:8080` öffnen – alle mit diesem Link spielen in derselben Welt (T = Chat). Online-Hosting mit Docker: [`docs/HOSTING.md`](docs/HOSTING.md).
+
 ### Online-Version (ohne Installation)
 
 Der Client ist rein statisch: `pnpm build` erzeugt `apps/client/dist/` mit relativen Pfaden, das sich unter jedem Pfad hosten lässt (Artifact, Cloudflare Pages, GitHub Pages). Die Steuerung fällt automatisch auf „Maus gedrückt halten" zurück, wenn Pointer Lock nicht erlaubt ist (eingebettete Seiten), und unterstützt Touch (links wischen = fliegen, rechts wischen = umsehen).

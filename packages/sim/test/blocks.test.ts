@@ -37,6 +37,7 @@ const hello = (): Message => ({
   protoVer: PROTOCOL_VERSION,
   token: '',
   clientBuild: 't',
+  name: 'Tester',
 });
 
 describe('Blockaktionen (autoritativ) + Persistenz', () => {

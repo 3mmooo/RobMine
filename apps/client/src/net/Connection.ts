@@ -1,7 +1,9 @@
 import { columnKey } from '@robmine/core';
 import {
   type BlockUpdateMsg,
+  type ChatMessageMsg,
   type ChunkColumnMsg,
+  type PlayerSnapshot,
   type ClientMessage,
   decodeFrame,
   encodeFrames,
@@ -37,6 +39,12 @@ export class Connection {
   onKick: ((reason: string) => void) | null = null;
   onFail: ((err: Error) => void) | null = null;
   onBlockUpdate: ((updates: BlockUpdateMsg['updates']) => void) | null = null;
+  onPlayers: ((players: PlayerSnapshot[]) => void) | null = null;
+  /** Namen aller verbundenen Mitspieler (auch die, die vor dem Registrieren der Handler kamen). */
+  readonly roster = new Map<number, string>();
+  onPlayerJoin: ((id: number, name: string) => void) | null = null;
+  onPlayerLeave: ((id: number) => void) | null = null;
+  onChat: ((msg: ChatMessageMsg) => void) | null = null;
 
   constructor(transport: Transport) {
     this.transport = transport;
@@ -44,11 +52,11 @@ export class Connection {
     transport.onClose(() => this.fail(new Error('Verbindung geschlossen')));
   }
 
-  hello(token = '', clientBuild = 'dev'): Promise<WelcomeMsg> {
+  hello(name: string, clientBuild = 'dev', token = ''): Promise<WelcomeMsg> {
     if (this.closed) return Promise.reject(new Error(this.closeReason ?? 'Verbindung geschlossen'));
     return new Promise<WelcomeMsg>((resolve, reject) => {
       this.welcomeWaiter = { resolve, reject };
-      this.send({ op: 'Hello', protoVer: PROTOCOL_VERSION, token, clientBuild });
+      this.send({ op: 'Hello', protoVer: PROTOCOL_VERSION, token, clientBuild, name });
     });
   }
 
@@ -73,6 +81,16 @@ export class Connection {
 
   ping(): void {
     this.send({ op: 'Ping', clientTime: Math.floor(performance.now()) & 0xffffffff });
+  }
+
+  /** Eigene Position (Fußpunkt) und Blickrichtung. */
+  sendMove(x: number, y: number, z: number, yaw: number, pitch: number): void {
+    this.send({ op: 'PlayerMove', x, y, z, yaw, pitch });
+  }
+
+  sendChat(text: string): void {
+    const t = text.trim();
+    if (t) this.send({ op: 'Chat', text: t.slice(0, 200) });
   }
 
   /** Blockaktion (0 = abbauen, 1 = setzen) – der Server entscheidet und antwortet mit BlockUpdate. */
@@ -136,6 +154,20 @@ export class Connection {
         break;
       case 'BlockUpdate':
         this.onBlockUpdate?.(m.updates);
+        break;
+      case 'Players':
+        this.onPlayers?.(m.players);
+        break;
+      case 'PlayerJoin':
+        this.roster.set(m.id, m.name);
+        this.onPlayerJoin?.(m.id, m.name);
+        break;
+      case 'PlayerLeave':
+        this.roster.delete(m.id);
+        this.onPlayerLeave?.(m.id);
+        break;
+      case 'ChatMessage':
+        this.onChat?.(m);
         break;
       case 'Kick':
         this.onKick?.(m.reason);

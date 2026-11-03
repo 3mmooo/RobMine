@@ -1,5 +1,7 @@
 export * from './World.ts';
+export * from './Instance.ts';
 export * from './LocalInstance.ts';
+export * from './chat.ts';
 export * from './WorkerPool.ts';
 export * from './ColumnStorage.ts';
 export * from './inventory.ts';

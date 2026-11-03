@@ -4,7 +4,14 @@ import { Hotbar } from './ui/Hotbar.ts';
 import { Interaction } from './game/Interaction.ts';
 import { Game } from './game/Game.ts';
 import { BreakParticles } from './render/BreakParticles.ts';
-import { PortTransport } from '@robmine/protocol';
+import {
+  openWebSocket,
+  PortTransport,
+  type Transport,
+  WebSocketTransport,
+} from '@robmine/protocol';
+import { RemotePlayers } from './render/RemotePlayers.ts';
+import { Chat } from './ui/Chat.ts';
 import { Renderer, type QualityLevel } from './render/Renderer.ts';
 import { ChunkManager } from './world/ChunkManager.ts';
 import { FlyCamera } from './input/FlyCamera.ts';
@@ -27,6 +34,9 @@ interface Params {
   debug: boolean;
   /** Debug: Render-Pässe ausblenden (opaque, cutout, fluid, sky). */
   hide: string[];
+  /** Mehrspieler: WebSocket-URL des Servers (z. B. wss://spiel.example.de/ws). */
+  server: string | null;
+  name: string;
 }
 
 function readParams(): Params {
@@ -53,7 +63,38 @@ function readParams(): Params {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    server: q.get('server'),
+    name: q.get('name') ?? storedName(),
   };
+}
+
+/** Fragt `./server.json` ab (liefert nur der Spielserver aus); sonst Solo. */
+async function detectServer(): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    const res = await fetch('./server.json', { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { ws?: string };
+    return typeof data.ws === 'string' ? data.ws : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Anzeigename aus localStorage (einmal zufällig erzeugt). */
+function storedName(): string {
+  try {
+    let n = localStorage.getItem('robmine-name');
+    if (!n) {
+      n = `Wanderer${1000 + Math.floor(Math.random() * 9000)}`;
+      localStorage.setItem('robmine-name', n);
+    }
+    return n;
+  } catch {
+    return 'Wanderer';
+  }
 }
 
 async function main(): Promise<void> {
@@ -82,20 +123,30 @@ async function main(): Promise<void> {
     2,
   );
 
-  // Lokale Instanz im Worker, Verbindung über MessageChannel (gleiches Protokoll wie online).
-  const simWorker = new Worker(new URL('./workers/localsim.worker.ts', import.meta.url), {
-    type: 'module',
-  });
-  const channel = new MessageChannel();
-  const spawn: [number, number, number] = [8.5, 112, 8.5];
-  const init: LocalSimInit = {
-    port: channel.port2,
-    seed: params.seed,
-    spawn,
-    timeOfDay: params.timeOfDay,
-  };
-  simWorker.postMessage(init, [channel.port2]);
-  const connection = new Connection(new PortTransport(channel.port1));
+  // Verbindung: Server (Mehrspieler) oder lokale Instanz im Worker – gleiches Protokoll.
+  let transport: Transport;
+  // Wird das Spiel vom Spielserver selbst ausgeliefert, verbindet es sich automatisch.
+  if (!params.server && !params.deterministic) params.server = await detectServer();
+  if (params.server === 'auto')
+    params.server = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  if (params.server) {
+    if (hint) hint.textContent = `Verbinde mit ${params.server} …`;
+    transport = new WebSocketTransport(await openWebSocket(params.server));
+  } else {
+    const simWorker = new Worker(new URL('./workers/localsim.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    const channel = new MessageChannel();
+    const init: LocalSimInit = {
+      port: channel.port2,
+      seed: params.seed,
+      spawn: [8.5, 112, 8.5],
+      timeOfDay: params.timeOfDay,
+    };
+    simWorker.postMessage(init, [channel.port2]);
+    transport = new PortTransport(channel.port1);
+  }
+  const connection = new Connection(transport);
   connection.onFail = (err) => {
     console.error('Verbindung verloren:', err.message);
     if (hint) {
@@ -103,7 +154,7 @@ async function main(): Promise<void> {
       hint.classList.remove('hidden');
     }
   };
-  const welcome = await connection.hello('', BUILD);
+  const welcome = await connection.hello(params.name, BUILD);
 
   const chunks = new ChunkManager(
     renderer,
@@ -154,6 +205,22 @@ async function main(): Promise<void> {
   const interaction = game
     ? new Interaction(renderer, fly, chunks, registry, connection, hotbar, particles, game)
     : null;
+
+  // Mitspieler + Chat (nur sichtbar, wenn ein Server verbunden ist).
+  const remotes = new RemotePlayers(renderer.scene, (id) => connection.roster.get(id));
+  connection.onPlayers = (players) => remotes.applySnapshot(players);
+  connection.onPlayerJoin = (id, name) => remotes.setName(id, name);
+  connection.onPlayerLeave = (id) => remotes.remove(id);
+  const chat = params.server && !params.deterministic ? new Chat() : null;
+  if (chat) {
+    chat.onSend = (text) => connection.sendChat(text);
+    chat.onToggle = (open) => {
+      fly.enabled = !open;
+    };
+    connection.onChat = (m) => chat.add(m.name, m.text, m.from === 0);
+    chat.add('', `Verbunden als ${params.name} – T zum Chatten.`, true);
+  }
+  let moveTimer = 0;
 
   // Kollision/Wasser für den Laufmodus aus den geladenen Spalten.
   fly.isSolid = (x, y, z) => registry.solid[chunks.getBlock(x, y, z) & 0xfff] === 1;
@@ -272,6 +339,17 @@ async function main(): Promise<void> {
     chunks.update(fly.position.x, fly.position.z);
     interaction?.update(dt);
     if (spawned) game?.update(dt);
+    remotes.update(dt, renderer.camera);
+    if (params.server && spawned) {
+      moveTimer += dt;
+      if (moveTimer >= 1 / 15) {
+        moveTimer = 0;
+        const p = fly.walk
+          ? fly.player
+          : { x: fly.position.x, y: fly.position.y - PLAYER.eyeHeight, z: fly.position.z };
+        connection.sendMove(p.x, p.y, p.z, fly.yaw, fly.pitch);
+      }
+    }
     particles.update(dt);
     chunks.applyPending();
     renderer.render(elapsed);

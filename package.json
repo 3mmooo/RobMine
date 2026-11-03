@@ -12,6 +12,7 @@
     "dev": "pnpm --filter @robmine/client dev",
     "build": "pnpm --filter @robmine/client build",
     "preview": "pnpm --filter @robmine/client preview",
+    "server": "node apps/server/src/main.ts",
     "typecheck": "pnpm -r --parallel run typecheck",
     "lint": "oxlint packages apps tools e2e",
     "format": "prettier --write .",

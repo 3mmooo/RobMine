@@ -5,7 +5,7 @@ import type { Message } from '../src/messages.ts';
 import { createLoopbackPair } from '../src/transport.ts';
 
 const samples: Message[] = [
-  { op: 'Hello', protoVer: 1, token: 'gast-äöü-🙂', clientBuild: 'dev' },
+  { op: 'Hello', protoVer: 1, token: 'gast-äöü-🙂', clientBuild: 'dev', name: 'Lumi' },
   { op: 'Ping', clientTime: 123456 },
   { op: 'ChunkRequest', cx: -7, cz: 2147483647 },
   {
@@ -29,6 +29,12 @@ const samples: Message[] = [
   },
   { op: 'Pong', clientTime: 99, serverTick: 1000 },
   { op: 'BlockAction', kind: 1, x: -5, y: 70, z: 123456, block: 4095 },
+  { op: 'PlayerMove', x: 1.5, y: 70, z: -3.25, yaw: 0.5, pitch: -0.25 },
+  { op: 'Chat', text: 'Hallo 🙂' },
+  { op: 'Players', players: [{ id: 3, x: 1.5, y: 64, z: 2.5, yaw: 1.5, pitch: 0 }] },
+  { op: 'PlayerJoin', id: 3, name: 'Wanderer' },
+  { op: 'PlayerLeave', id: 3 },
+  { op: 'ChatMessage', from: 0, name: 'System', text: 'Willkommen' },
   {
     op: 'BlockUpdate',
     updates: [
@@ -43,7 +49,7 @@ describe('Protokoll-Codec', () => {
   it('alle Nachrichten überleben den Roundtrip in einem Rahmen', () => {
     const frame = encodeFrame(777, samples);
     const back = decodeFrame(frame);
-    expect(back.version).toBe(1);
+    expect(back.version).toBe(2);
     expect(back.tick).toBe(777);
     expect(back.messages).toEqual(samples);
   });

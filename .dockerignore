@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+.git
+.vitest
+e2e/test-results
+e2e/playwright-report
+e2e/screenshots
+tools/out
+data
