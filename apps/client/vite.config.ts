@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Relative Pfade: läuft unter jedem Hosting-Unterpfad (Artifact, Pages, lokale Vorschau).
+  base: './',
   worker: {
     format: 'es',
   },

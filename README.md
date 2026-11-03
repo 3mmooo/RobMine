@@ -30,6 +30,12 @@ Dann `http://127.0.0.1:5173` öffnen, in das Fenster klicken und fliegen: **WASD
 | `cam`     | Kamera `x,y,z,yaw,pitch`                                                 | `?cam=12,92,20,-0.65,-0.28` |
 | `debug`   | `1` = Overlay sofort sichtbar                                            | `?debug=1`                  |
 
+### Online-Version (ohne Installation)
+
+Der Client ist rein statisch: `pnpm build` erzeugt `apps/client/dist/` mit relativen Pfaden, das sich unter jedem Pfad hosten lässt (Artifact, Cloudflare Pages, GitHub Pages). Die Steuerung fällt automatisch auf „Maus gedrückt halten" zurück, wenn Pointer Lock nicht erlaubt ist (eingebettete Seiten), und unterstützt Touch (links wischen = fliegen, rechts wischen = umsehen).
+
+Für einen Leistungsbericht: **F3** drücken (oder `?debug=1` anhängen), kurz warten bis „Jobs gen 0 mesh 0 upload 0", dann **„Bericht kopieren"** und den Text einfügen.
+
 ## Befehle
 
 | Befehl                        | Was passiert                                                                            |

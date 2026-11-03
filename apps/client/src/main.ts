@@ -171,6 +171,14 @@ async function main(): Promise<void> {
   let last = performance.now();
   let elapsed = 0;
   let hintHidden = false;
+  fly.onModeChange = (mode) => {
+    if (!hint || hintHidden) return;
+    if (mode === 'drag')
+      hint.textContent =
+        'Maus gedrückt halten zum Umsehen · WASD bewegen · Leertaste/Shift hoch/runter · Strg schnell · F3 Statistik';
+    else if (mode === 'touch')
+      hint.textContent = 'Links wischen = fliegen · rechts wischen = umsehen';
+  };
 
   function frame(now: number, force = false): void {
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -187,7 +195,7 @@ async function main(): Promise<void> {
     api.frames++;
     overlay.tick(performance.now() - now);
     if (!api.ready && chunks.settled) api.ready = true;
-    if (!hintHidden && fly.isLocked && hint) {
+    if (!hintHidden && fly.hasInteracted && hint) {
       hint.classList.add('hidden');
       hintHidden = true;
     }
