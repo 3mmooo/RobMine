@@ -14,3 +14,4 @@ export * from './worldgen/v1/biomes.ts';
 export * from './worldgen/v1/terrain.ts';
 export * from './worldgen/v1/pipeline.ts';
 export * from './physics/player.ts';
+export * from './physics/raycast.ts';

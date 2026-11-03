@@ -14,6 +14,9 @@ export interface RmDebugApi {
   renderOnce: () => void;
   /** Zustände der Spalten/Batches (siehe ChunkManager.debugSummary). */
   debug: () => Record<string, number>;
+  /** Blockaktion über das Protokoll (wie ein Klick); 0 = abbauen. */
+  setBlock: (x: number, y: number, z: number, block: number) => void;
+  getBlock: (x: number, y: number, z: number) => number;
   errors: string[];
 }
 

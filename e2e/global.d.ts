@@ -11,6 +11,8 @@ interface RmDebugApiE2E {
   setTime: (timeOfDay: number) => void;
   renderOnce: () => void;
   debug: () => Record<string, number>;
+  setBlock: (x: number, y: number, z: number, block: number) => void;
+  getBlock: (x: number, y: number, z: number) => number;
 }
 
 interface Window {

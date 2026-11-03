@@ -1,6 +1,9 @@
 import {
+  type BlockRegistry,
   buildPaddedChunk,
   ChunkData,
+  columnSet,
+  initColumnLight,
   CHUNK_BITS,
   CHUNK_SIZE,
   CHUNKS_PER_COLUMN,
@@ -34,6 +37,8 @@ interface ColumnEntry {
   meshedMask: number;
   /** Bit cy gesetzt = Mesh-Job läuft. */
   meshingMask: number;
+  /** Bit cy gesetzt = Chunk wurde während eines laufenden Mesh-Jobs geändert (danach erneut meshen). */
+  dirtyMask: number;
   /** Nach Kapazitätsüberlauf: ab wann erneut gemesht werden darf. */
   meshRetryAt: number;
 }
@@ -182,6 +187,7 @@ export class ChunkManager {
         col: null,
         meshedMask: 0,
         meshingMask: 0,
+        dirtyMask: 0,
         meshRetryAt: 0,
       };
       this.columns.set(key, entry);
@@ -288,7 +294,9 @@ export class ChunkManager {
             this.meshSamples.push(res.ms);
             if (this.columns.get(columnKey(e.cx, e.cz)) !== e) return;
             e.meshingMask &= ~bit;
-            e.meshedMask |= bit;
+            if (e.dirtyMask & bit)
+              e.dirtyMask &= ~bit; // geändert während des Jobs → erneut meshen
+            else e.meshedMask |= bit;
             this.pendingMeshes.push({ key, cx: e.cx, cy, cz: e.cz, mesh: res.mesh, entry: e });
           })
           .catch((err: Error) => {
@@ -441,6 +449,47 @@ export class ChunkManager {
       cutoutEntries: this.renderer.cutout.chunkCount,
       fluidEntries: this.renderer.fluid.chunkCount,
     };
+  }
+
+  /**
+   * Bestätigte Blockänderung (vom Server): Block setzen, Höhenkarte und Licht der Spalte neu
+   * berechnen, betroffene Chunks (eigene Spalte ganz, Nachbarspalten um die Änderung herum)
+   * neu meshen.
+   */
+  applyBlockUpdate(x: number, y: number, z: number, block: number, registry: BlockRegistry): void {
+    const cx = x >> CHUNK_BITS;
+    const cz = z >> CHUNK_BITS;
+    const e = this.columns.get(columnKey(cx, cz));
+    if (!e || !e.col) return;
+    const lx = x & (CHUNK_SIZE - 1);
+    const lz = z & (CHUNK_SIZE - 1);
+    columnSet(e.col, lx, y, lz, block);
+    const hi = lx + lz * CHUNK_SIZE;
+    if (block !== 0 && y > e.col.height[hi]!) e.col.height[hi] = y;
+    else if (block === 0 && y === e.col.height[hi]) {
+      let h = y - 1;
+      while (h > 0 && columnGet(e.col, lx, h, lz) === 0) h--;
+      e.col.height[hi] = h;
+    }
+    initColumnLight(e.col, registry);
+    const cy = y >> CHUNK_BITS;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const n = this.columns.get(columnKey(cx + dx, cz + dz));
+        if (!n || n.state !== 'ready') continue;
+        const own = dx === 0 && dz === 0;
+        for (let k = 0; k < CHUNKS_PER_COLUMN; k++) {
+          if (!own && Math.abs(k - cy) > 1) continue;
+          this.invalidateChunk(n, k);
+        }
+      }
+    }
+  }
+
+  private invalidateChunk(e: ColumnEntry, cy: number): void {
+    const bit = 1 << cy;
+    e.meshedMask &= ~bit;
+    if (e.meshingMask & bit) e.dirtyMask |= bit;
   }
 
   /** Blockwert an Weltposition (AIR, wenn die Spalte nicht geladen ist). */

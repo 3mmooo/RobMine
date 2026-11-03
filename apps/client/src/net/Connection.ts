@@ -1,5 +1,6 @@
 import { columnKey } from '@robmine/core';
 import {
+  type BlockUpdateMsg,
   type ChunkColumnMsg,
   type ClientMessage,
   decodeFrame,
@@ -35,6 +36,7 @@ export class Connection {
   closeReason: string | null = null;
   onKick: ((reason: string) => void) | null = null;
   onFail: ((err: Error) => void) | null = null;
+  onBlockUpdate: ((updates: BlockUpdateMsg['updates']) => void) | null = null;
 
   constructor(transport: Transport) {
     this.transport = transport;
@@ -71,6 +73,11 @@ export class Connection {
 
   ping(): void {
     this.send({ op: 'Ping', clientTime: Math.floor(performance.now()) & 0xffffffff });
+  }
+
+  /** Blockaktion (0 = abbauen, 1 = setzen) – der Server entscheidet und antwortet mit BlockUpdate. */
+  sendBlockAction(kind: number, x: number, y: number, z: number, block: number): void {
+    this.send({ op: 'BlockAction', kind, x, y, z, block });
   }
 
   get pendingColumns(): number {
@@ -126,6 +133,9 @@ export class Connection {
       }
       case 'Pong':
         this.lastRttMs = (Math.floor(performance.now()) & 0xffffffff) - m.clientTime;
+        break;
+      case 'BlockUpdate':
+        this.onBlockUpdate?.(m.updates);
         break;
       case 'Kick':
         this.onKick?.(m.reason);

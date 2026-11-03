@@ -22,6 +22,20 @@ export function encodeMessage(w: ByteWriter, m: Message): void {
     case 'ChunkRequest':
       w.u8(Op.ChunkRequest).u32(8).i32(m.cx).i32(m.cz);
       break;
+    case 'BlockAction':
+      w.u8(Op.BlockAction).u32(13).u8(m.kind).i32(m.x).i16(m.y).i32(m.z).u16(m.block);
+      break;
+    case 'BlockUpdate':
+      w.u8(Op.BlockUpdate);
+      {
+        const at = w.length;
+        w.u32(0);
+        const start = w.length;
+        w.u16(m.updates.length);
+        for (const u of m.updates) w.i32(u.x).i16(u.y).i32(u.z).u16(u.block);
+        w.patchU32(at, w.length - start);
+      }
+      break;
     case 'Welcome':
       w.u8(Op.Welcome);
       {
@@ -85,6 +99,17 @@ export function decodeMessage(r: ByteReader): Message {
     case Op.ChunkRequest:
       msg = { op: 'ChunkRequest', cx: r.i32(), cz: r.i32() };
       break;
+    case Op.BlockAction:
+      msg = { op: 'BlockAction', kind: r.u8(), x: r.i32(), y: r.i16(), z: r.i32(), block: r.u16() };
+      break;
+    case Op.BlockUpdate: {
+      const n = r.u16();
+      const updates: { x: number; y: number; z: number; block: number }[] = [];
+      for (let i = 0; i < n; i++)
+        updates.push({ x: r.i32(), y: r.i16(), z: r.i32(), block: r.u16() });
+      msg = { op: 'BlockUpdate', updates };
+      break;
+    }
     case Op.Welcome:
       msg = {
         op: 'Welcome',

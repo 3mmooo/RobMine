@@ -13,19 +13,26 @@ import {
 import { LocalInstance } from '../src/LocalInstance.ts';
 import { InlineRunner } from '../src/WorkerPool.ts';
 
-function collect(transport: Transport): { next: () => Promise<Message[]>; closed: Promise<void> } {
+function collect(transport: Transport): {
+  next: (min?: number) => Promise<Message[]>;
+  closed: Promise<void>;
+} {
   const received: Message[] = [];
-  const waiters: ((m: Message[]) => void)[] = [];
+  let waiters: (() => boolean)[] = [];
   transport.onFrame((data) => {
     received.push(...decodeFrame(data).messages);
-    for (const w of waiters.splice(0)) w(received);
+    waiters = waiters.filter((w) => !w());
   });
   const closed = new Promise<void>((resolve) => transport.onClose(resolve));
   return {
-    next: () =>
+    next: (min = 1) =>
       new Promise<Message[]>((resolve) => {
-        if (received.length) resolve(received);
-        else waiters.push(resolve);
+        const check = (): boolean => {
+          if (received.length < min) return false;
+          resolve(received);
+          return true;
+        };
+        if (!check()) waiters.push(check);
       }),
     closed,
   };
@@ -97,7 +104,7 @@ describe('LocalInstance', () => {
     const inst = new LocalInstance(server, { seed: 42, spawn: [0, 0, 0] });
     const { next } = collect(client);
     client.send(encodeFrame(0, [hello(), { op: 'ChunkRequest', cx: 3, cz: -2 }]));
-    let msgs = await next();
+    let msgs = await next(2);
     expect(msgs[0]!.op).toBe('Welcome');
     expect(msgs[1]).toEqual({ op: 'ChunkColumn', cx: 3, cz: -2, pristineMask: 0xff, chunks: [] });
 

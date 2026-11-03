@@ -1,5 +1,8 @@
-import { normalizeSeed, PLAYER, RenderPass } from '@robmine/core';
-import { createBlockRegistry } from '@robmine/content';
+import { AIR, normalizeSeed, PLAYER, RenderPass } from '@robmine/core';
+import { BLOCK, createBlockRegistry } from '@robmine/content';
+import { Hotbar } from './ui/Hotbar.ts';
+import { Interaction } from './game/Interaction.ts';
+import { BreakParticles } from './render/BreakParticles.ts';
 import { PortTransport } from '@robmine/protocol';
 import { Renderer, type QualityLevel } from './render/Renderer.ts';
 import { ChunkManager } from './world/ChunkManager.ts';
@@ -110,8 +113,36 @@ async function main(): Promise<void> {
     renderer.preset.radius,
   );
 
-  // Kollision/Wasser für den Laufmodus aus den geladenen Spalten.
+  // Bauen: Hotbar, Partikel, Anvisieren; bestätigte Änderungen vom Server einarbeiten.
   const registry = createBlockRegistry();
+  const placeable = registry.defs
+    .filter((d) => d && d.id !== AIR && d.id !== BLOCK.Urgestein && !d.fluid)
+    .map((d) => d!.id);
+  const hotbar = new Hotbar(
+    registry,
+    [
+      BLOCK.Feldstein,
+      BLOCK.Erde,
+      BLOCK.HainStamm,
+      BLOCK.HainBlaetter,
+      BLOCK.Glas,
+      BLOCK.Glutfackel,
+      BLOCK.Ambritlampe,
+      BLOCK.Kristall,
+      BLOCK.Sand,
+    ],
+    placeable,
+  );
+  const particles = new BreakParticles();
+  renderer.scene.add(particles.mesh);
+  connection.onBlockUpdate = (updates) => {
+    for (const u of updates) chunks.applyBlockUpdate(u.x, u.y, u.z, u.block, registry);
+  };
+  const interaction = params.deterministic
+    ? null
+    : new Interaction(renderer, fly, chunks, registry, connection, hotbar, particles);
+
+  // Kollision/Wasser für den Laufmodus aus den geladenen Spalten.
   fly.isSolid = (x, y, z) => registry.solid[chunks.getBlock(x, y, z) & 0xfff] === 1;
   fly.isFluid = (x, y, z) => registry.pass[chunks.getBlock(x, y, z) & 0xfff] === RenderPass.Fluid;
 
@@ -147,6 +178,9 @@ async function main(): Promise<void> {
     },
     renderOnce: () => frame(performance.now(), true),
     debug: () => chunks.debugSummary(),
+    setBlock: (x: number, y: number, z: number, block: number) =>
+      connection.sendBlockAction(block === AIR ? 0 : 1, x, y, z, block),
+    getBlock: (x: number, y: number, z: number) => chunks.getBlock(x, y, z),
   };
   exposeDebugApi(api);
 
@@ -183,14 +217,14 @@ async function main(): Promise<void> {
     if (!hint || hintHidden) return;
     if (mode === 'drag')
       hint.textContent =
-        'Maus gedrückt halten zum Umsehen · WASD laufen · Leertaste springen · Strg rennen · F fliegen/laufen · F3 Statistik';
+        'Maus gedrückt halten zum Umsehen · WASD laufen · Linksklick abbauen · Rechtsklick setzen · 1–9 / E Block · F fliegen';
     else if (mode === 'touch')
       hint.textContent = 'Links wischen = laufen · rechts wischen = umsehen';
   };
   fly.onWalkChange = (walk) => {
     if (!hint || hintHidden) return;
     hint.textContent = walk
-      ? 'WASD laufen · Leertaste springen · Strg rennen · F fliegen · F3 Statistik'
+      ? 'WASD laufen · Leertaste springen · Linksklick abbauen · Rechtsklick setzen · 1–9 / E Block · F fliegen'
       : 'WASD fliegen · Leertaste/Shift hoch/runter · Strg schnell · F laufen · F3 Statistik';
   };
 
@@ -214,6 +248,8 @@ async function main(): Promise<void> {
     }
     fly.update(dt);
     chunks.update(fly.position.x, fly.position.z);
+    interaction?.update();
+    particles.update(dt);
     chunks.applyPending();
     renderer.render(elapsed);
     api.frames++;

@@ -28,6 +28,14 @@ const samples: Message[] = [
     ],
   },
   { op: 'Pong', clientTime: 99, serverTick: 1000 },
+  { op: 'BlockAction', kind: 1, x: -5, y: 70, z: 123456, block: 4095 },
+  {
+    op: 'BlockUpdate',
+    updates: [
+      { x: 1, y: 2, z: 3, block: 7 },
+      { x: -1, y: 255, z: -3, block: 0 },
+    ],
+  },
   { op: 'Kick', reason: 'Wartung' },
 ];
 

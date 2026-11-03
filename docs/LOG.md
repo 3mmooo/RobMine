@@ -28,6 +28,10 @@
 
 **Perf-Bericht des Users (RTX 3060 Ti, Stufe Mittel, Radius 8, Phase 1):** 144 fps (Monitor-Limit), Frame 1,9 ms (p95 2,6 ms), 22 Draw Calls, 2,84 M Dreiecke, 6 Batch-Seiten, Heap 235 MB, 225 Spalten / 627 Chunks, Weltgen 8,1 ms/Spalte, Meshing 3,0 ms/Chunk, 0 Überläufe. → Budget 16,6 ms wird um den Faktor 8 unterschritten; Luft für Stufe Hoch (Radius 12) und Post-Effekte.
 
+## Session 3 – 2026-11-03 – Phase 2 kompakt (Bauen)
+
+Protokoll: `BlockAction` (C→S) / `BlockUpdate` (S→C). Die Instanz ist autoritativ: validiert (setzbar, unzerstörbar, Wasser ersetzbar), erzeugt die Spalte beim ersten Eingriff aus dem Seed, ändert die Welt, bestätigt per BlockUpdate und speichert verzögert (1,5 s) alle 8 Chunks der Spalte in IndexedDB (`robmine-world-<seed>`); beim nächsten Start liefert sie die Spalte als Blobs (Seed-Streaming unverändert). Client: DDA-Raycast (6 m), Hervorhebung, Linksklick abbauen (Partikel), Rechtsklick setzen (nicht in den eigenen Körper), Hotbar 1–9 + Mausrad, Block-Auswahl mit E, Licht der Spalte wird nach jeder Änderung neu berechnet (synchron, ≈5–10 ms) und betroffene Chunks neu gemesht. E2E: setzen → abbauen → Neuladen → Änderungen bleiben.
+
 ## Session 2 – 2026-11-03 – Phase 1 kompakt
 
 Allein, ohne Agenten. Neu: 9 Oberflächen-Biome (Hainland, Flüsterwald mit Riesenbäumen, Blütental mit rosa Kronen, Glasdünen, Nebelmoor mit Tümpeln, Frostkamm mit Nadelbäumen, Himmelsgrat, Sternenmeer/Perlküste, Aschenfeld mit Basalt), Kristalle in tiefen Höhlen (farbiges Licht), Wasser mit Tiefenfarbe und Uferschaum (Tiefe im Vertex, aus der Höhenkarte), Spielerphysik (`core/physics/player.ts`: AABB, Schwerkraft, Sprung, automatische Stufe, Schwimmen) – Laufmodus ist Standard, **F** schaltet auf Fliegen. 71 Tests, Bench und E2E grün.
