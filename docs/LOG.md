@@ -26,7 +26,7 @@
 
 Ø 1.347 Quads je Oberflächen-Chunk; Client-Bundle 161 KB gzip (+ 3 Worker à 4–8 KB). E2E (Chromium/SwiftShader, Radius 6): 137 Spalten, 350 Chunks gemesht, 4 Draw Calls (Niedrig) bzw. 10 (Mittel mit 3 Schattenkaskaden), 455k Dreiecke, 0 Konsolenfehler, Geometrien stabil nach Teleport.
 
-**Perf-Bericht des Users (echte GPU):** ausstehend – bitte F3 → „Bericht kopieren" hier eintragen.
+**Perf-Bericht des Users (RTX 3060 Ti, Stufe Mittel, Radius 8, Phase 1):** 144 fps (Monitor-Limit), Frame 1,9 ms (p95 2,6 ms), 22 Draw Calls, 2,84 M Dreiecke, 6 Batch-Seiten, Heap 235 MB, 225 Spalten / 627 Chunks, Weltgen 8,1 ms/Spalte, Meshing 3,0 ms/Chunk, 0 Überläufe. → Budget 16,6 ms wird um den Faktor 8 unterschritten; Luft für Stufe Hoch (Radius 12) und Post-Effekte.
 
 ## Session 2 – 2026-11-03 – Phase 1 kompakt
 
