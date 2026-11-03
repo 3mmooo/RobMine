@@ -10,6 +10,7 @@ interface RmDebugApiE2E {
   setPose: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
   setTime: (timeOfDay: number) => void;
   renderOnce: () => void;
+  debug: () => Record<string, number>;
 }
 
 interface Window {

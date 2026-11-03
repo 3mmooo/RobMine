@@ -129,6 +129,47 @@ export function encodeFrame(tick: number, messages: readonly Message[]): Uint8Ar
   return w.toUint8Array();
 }
 
+/** Sender-seitiges Byte-Budget je Rahmen (Empfänger erlaubt MAX_FRAME_BYTES). */
+export const FRAME_BYTE_BUDGET = 1024 * 1024;
+
+/**
+ * Teilt Nachrichten in Rahmen auf: höchstens 255 Nachrichten und – sobald mindestens eine
+ * Nachricht drin ist – höchstens `maxBytes` je Rahmen. Eine einzelne übergroße Nachricht
+ * bekommt einen eigenen Rahmen.
+ */
+export function encodeFrames(
+  tick: number,
+  messages: readonly Message[],
+  maxBytes = FRAME_BYTE_BUDGET,
+): Uint8Array[] {
+  const frames: Uint8Array[] = [];
+  let w: ByteWriter | null = null;
+  let count = 0;
+  const finish = (): void => {
+    if (!w || count === 0) return;
+    const out = w.toUint8Array();
+    out[3] = count;
+    frames.push(out);
+    w = null;
+    count = 0;
+  };
+  for (const m of messages) {
+    const tmp = new ByteWriter(256);
+    encodeMessage(tmp, m);
+    const bytes = tmp.toUint8Array();
+    if (w && (count >= 255 || w.length + bytes.length > maxBytes)) finish();
+    if (!w)
+      w = new ByteWriter(512)
+        .u8(PROTOCOL_VERSION)
+        .u16(tick & 0xffff)
+        .u8(0);
+    w.raw(bytes);
+    count++;
+  }
+  finish();
+  return frames;
+}
+
 export function decodeFrame(data: Uint8Array): Frame {
   if (data.length > MAX_FRAME_BYTES) throw new Error('Rahmen zu groß');
   const r = new ByteReader(data);

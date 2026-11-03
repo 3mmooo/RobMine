@@ -39,11 +39,12 @@ test.describe('Phase 0 – Hainland', () => {
     expect(s.chunks['chunksMeshed']).toBeGreaterThanOrEqual(150);
     expect(s.chunks['columnsLoaded']).toBeGreaterThanOrEqual(100);
     expect(s.chunks['overflow']).toBe(0);
+    expect(s.chunks['retries']).toBe(0);
     // Plausibilitäts-Grenzen (im Worker gemessen; die harten Budgets prüft `pnpm bench` ohne
     // CPU-Konkurrenz durch SwiftShader und sechs parallele Worker).
     expect(s.chunks['genMsAvg']! / 8).toBeLessThanOrEqual(5);
     expect(s.chunks['meshMsAvg']).toBeLessThanOrEqual(12);
-    // Draw Calls: 3 Batches + Himmel (+ Schattenpässe bei Mittel/Hoch) – hier ohne Schatten
+    // Draw Calls: Batch-Seiten + Himmel (+ Schattenpässe bei Mittel/Hoch) – hier ohne Schatten
     expect(s.drawCalls).toBeLessThanOrEqual(20);
     expect(s.triangles).toBeGreaterThan(50_000);
 
@@ -61,7 +62,6 @@ test.describe('Phase 0 – Hainland', () => {
       window.__rm!.renderOnce();
       ctx.drawImage(canvas, 0, 0, probe.width, probe.height);
       const data = ctx.getImageData(0, 0, probe.width, probe.height).data;
-      // Himmel = oberste Zeile als Referenz (Mittelwert)
       let sr = 0;
       let sg = 0;
       let sb = 0;
@@ -95,24 +95,31 @@ test.describe('Phase 0 – Hainland', () => {
     expect(consoleErrors.filter((e) => !e.includes('WEBGL_debug_renderer_info'))).toEqual([]);
   });
 
-  test('Teleport weit weg und zurück lässt keine Geometrien liegen (Leak-Check)', async ({
+  test('Teleport während des Ladens und zurück lässt keine Geometrien oder Chunks liegen (Leak-Check)', async ({
     page,
   }) => {
     await page.goto('/?seed=42&det=1&t=600&quality=low&radius=5&cam=12,118,20,-0.65,-0.42');
+    // Sofort nach dem Start (mitten im Laden) weit weg teleportieren …
+    await page.waitForFunction(() => window.__rm !== undefined, undefined, { timeout: 60_000 });
+    await page.evaluate(() => window.__rm!.teleport(12 + 600, 118, 20));
+    await waitReady(page);
+    const far = await stats(page);
+    expect(far.chunks['chunksVisible']).toBeGreaterThan(0);
+
+    // … und zurück: Referenzwerte am Ursprung.
+    await page.evaluate(() => window.__rm!.teleport(12, 118, 20));
     await waitReady(page);
     const before = await stats(page);
 
-    await page.evaluate(() => window.__rm!.teleport(12 + 600, 92, 20));
+    await page.evaluate(() => window.__rm!.teleport(12 + 600, 118, 20));
     await waitReady(page);
-    await page.evaluate(() => window.__rm!.teleport(12, 92, 20));
+    await page.evaluate(() => window.__rm!.teleport(12, 118, 20));
     await waitReady(page);
     const after = await stats(page);
 
-    // BatchedMesh hält konstante GPU-Puffer; die Anzahl der Geometrien darf nicht wachsen.
+    // BatchedMesh-Seiten halten konstante GPU-Puffer; Geometrien dürfen nicht wachsen.
     expect(after.geometries).toBeLessThanOrEqual(before.geometries + 2);
-    expect(after.chunks['chunksVisible']).toBeGreaterThan(0);
-    expect(
-      Math.abs(after.chunks['chunksVisible']! - before.chunks['chunksVisible']!),
-    ).toBeLessThanOrEqual(8);
+    expect(after.chunks['chunksVisible']).toBe(before.chunks['chunksVisible']);
+    expect(after.chunks['overflow']).toBe(0);
   });
 });

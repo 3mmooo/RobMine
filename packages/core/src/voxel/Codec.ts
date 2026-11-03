@@ -29,6 +29,8 @@ const FLAG_UNIFORM = 1;
 const FLAG_DEFLATE = 2;
 const HEADER_BYTES = 6;
 const DEFLATE_THRESHOLD = 64;
+/** Größte mögliche Rohlänge: Palette mit 65535 Einträgen + 16-Bit-Indizes + Meta-Länge. */
+const MAX_RAW_BYTES = 2 + 65535 * 2 + 1 + packedByteLength(16, CHUNK_VOLUME) + 4 + 1024 * 1024;
 
 // 'RMC1' als Bytes (kein TextEncoder nötig – core bleibt frei von DOM/Node-Typen).
 const MAGIC_BYTES = Uint8Array.of(0x52, 0x4d, 0x43, 0x31);
@@ -95,6 +97,7 @@ export function decodeChunk(data: Uint8Array): ChunkData {
   }
 
   const rawLen = view.getUint32(6, true);
+  if (rawLen > MAX_RAW_BYTES) throw new Error(`RMC1: unplausible Payload-Länge ${rawLen}`);
   let raw = data.subarray(HEADER_BYTES + 4);
   if (flags & FLAG_DEFLATE) {
     raw = inflateSync(raw, { out: new Uint8Array(rawLen) });

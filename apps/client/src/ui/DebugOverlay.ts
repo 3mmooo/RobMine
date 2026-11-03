@@ -76,8 +76,18 @@ export class DebugOverlay {
     }
   }
 
+  /** Zuletzt gerenderter Bericht (bis zu 500 ms alt) – für die Anzeige. */
   report(): DebugReport {
     return this.lastReport ?? this.provider();
+  }
+
+  /** Frischer Bericht (jetzt berechnet) – für Tests und „Bericht kopieren". */
+  fresh(): DebugReport {
+    this.lastReport = this.provider();
+    this.lastReport.fps = this.fps;
+    this.lastReport.frameMs = this.frameMs;
+    this.lastReport.frameMsP95 = this.frameMsP95;
+    return this.lastReport;
   }
 
   private render(r: DebugReport): void {
@@ -100,7 +110,7 @@ export class DebugOverlay {
   }
 
   private async copy(): Promise<void> {
-    const json = JSON.stringify(this.report(), null, 2);
+    const json = JSON.stringify(this.fresh(), null, 2);
     try {
       await navigator.clipboard.writeText(json);
       this.button.textContent = 'Kopiert ✓';

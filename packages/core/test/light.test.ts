@@ -24,23 +24,34 @@ describe('Licht', () => {
     expect(lightSky(v)).toBe(15);
   });
 
-  it('Himmelslicht: offener Himmel 15, unter Stein 0, Höhleneingang fällt um 1 je Schritt', () => {
+  it('Himmelslicht: offener Himmel 15, unter Stein 0, unter einem Überhang fällt es ab', () => {
     const col = flatColumn(40);
-    // Tunnel bei y=41..42 von x=0..10 unter einem Dach (y=43) aus Stein, offen bei x=0 Richtung... wir bauen
-    // stattdessen eine Nische: Dach über x=5..15 bei y=41, darunter Luft bei y=41? Einfach: Überhang.
+    // Überhang: Platte x=5..15, z=10..13 bei y=44, darunter Luft.
     for (let z = 10; z < 14; z++)
       for (let x = 5; x <= 15; x++) columnSet(col, x, 44, z, blocks.stone);
     initColumnLight(col, reg);
     expect(lightSky(columnGetLight(col, 20, 60, 20))).toBe(15);
     expect(lightSky(columnGetLight(col, 20, 41, 20))).toBe(15);
     expect(lightSky(columnGetLight(col, 20, 10, 20))).toBe(0); // im Stein
-    // Direkt unter dem Überhang (x=5, Rand) ist es 14, weiter innen weniger
     const edge = lightSky(columnGetLight(col, 5, 43, 12));
     const inner = lightSky(columnGetLight(col, 10, 43, 12));
     expect(edge).toBeLessThanOrEqual(15);
     expect(edge).toBeGreaterThanOrEqual(13);
     expect(inner).toBeLessThan(edge);
     expect(inner).toBeGreaterThan(0);
+  });
+
+  it('Platte an einer Chunk-Unterkante über leeren Chunks: Unterseite wird beleuchtet (kein schwarzes Dach)', () => {
+    // Boden bis y=40 (cy=1), Chunks cy=2/3 reine Luft, opake Platte in der untersten Lage von cy=4 (y=128).
+    const col = flatColumn(40);
+    for (let z = 8; z <= 24; z++)
+      for (let x = 8; x <= 24; x++) columnSet(col, x, 128, z, blocks.stone);
+    initColumnLight(col, reg);
+    expect(lightSky(columnGetLight(col, 8, 127, 16))).toBe(14);
+    expect(lightSky(columnGetLight(col, 16, 127, 16))).toBe(6);
+    // Weiter unten kommt das Licht seitlich von den offenen Nachbarspalten (x=7): 15 − 9 = 6.
+    expect(lightSky(columnGetLight(col, 16, 120, 16))).toBe(6);
+    expect(lightSky(columnGetLight(col, 16, 129, 16))).toBe(15);
   });
 
   it('Blocklicht: Fackel strahlt farbig und fällt um 1 je Block', () => {
@@ -55,9 +66,7 @@ describe('Licht', () => {
     expect(lightR(at(3))).toBe(11);
     expect(lightB(at(6))).toBe(0);
     expect(lightR(at(6))).toBe(8);
-    // Himmelslicht bleibt unberührt
     expect(lightSky(at(3))).toBe(15);
-    // Unter dem Boden kommt nichts an
     expect(lightR(columnGetLight(col, 16, 39, 16))).toBe(0);
   });
 

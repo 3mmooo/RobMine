@@ -143,12 +143,28 @@ export class Renderer {
     }
 
     this.materials = createTerrainMaterials(this.csm);
-    this.opaque = new ChunkBatch(this.materials.opaque, 'opaque', 6000, 3_000_000, 4_500_000);
-    this.cutout = new ChunkBatch(this.materials.cutout, 'cutout', 4000, 1_000_000, 1_500_000);
-    this.fluid = new ChunkBatch(this.materials.fluid, 'fluid', 3000, 400_000, 600_000);
-    this.fluid.mesh.castShadow = false;
-    this.fluid.mesh.renderOrder = 10;
-    this.scene.add(this.opaque.mesh, this.cutout.mesh, this.fluid.mesh);
+    // Seiten à 1,5 M Vertices (≈ 22 MB Attribute + 9 MB Index je Seite); Kapazität wächst bei Bedarf.
+    this.opaque = new ChunkBatch(this.materials.opaque, 'opaque', {
+      pageVertices: 1_500_000,
+      pageInstances: 2048,
+      maxPages: 10,
+      minReserveVertices: 512,
+    });
+    this.cutout = new ChunkBatch(this.materials.cutout, 'cutout', {
+      pageVertices: 500_000,
+      pageInstances: 2048,
+      maxPages: 8,
+      minReserveVertices: 256,
+    });
+    this.fluid = new ChunkBatch(this.materials.fluid, 'fluid', {
+      pageVertices: 200_000,
+      pageInstances: 1024,
+      maxPages: 6,
+      minReserveVertices: 128,
+      castShadow: false,
+      renderOrder: 10,
+    });
+    this.scene.add(this.opaque.group, this.cutout.group, this.fluid.group);
 
     window.addEventListener('resize', () => this.resize());
   }

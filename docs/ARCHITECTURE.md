@@ -33,7 +33,7 @@ Greedy Meshing je Richtung mit Merge-Schlüssel (Typ, AO-Signatur, 4 Vertex-Lich
 
 ## Rendering (Phase 0)
 
-WebGLRenderer (ACES, sRGB) · Himmelskuppel-Shader (Tageszeit-Keyframes, Sonne, Sterne) · linearer Nebel in Horizontfarbe · HemisphereLight + **CSM** (3 Kaskaden, `three/addons/csm`) · je Pass ein **BatchedMesh** (Multi-Draw, Chunk-Culling, reservierte Vertexbereiche, `optimize()` bei > 30 % Verschnitt) · `MeshLambertMaterial` + `onBeforeCompile` (Vertex-Entpacken, Voxellicht × AO × Himmelslicht², Blockjitter, Kantenbevel, Muster) – der CSM-Hook wird umwickelt.
+WebGLRenderer (ACES, sRGB) · Himmelskuppel-Shader (Tageszeit-Keyframes, Sonne, Sterne) · linearer Nebel in Horizontfarbe · HemisphereLight + **CSM** (3 Kaskaden, `three/addons/csm`) · je Pass **BatchedMesh-Seiten** (Multi-Draw, Chunk-Culling, Kapazität in reservierten Vertices geführt, neue Seite bei Bedarf, `optimize()` bei Fragmentierung oder > 30 % Verschnitt) · `MeshLambertMaterial` + `onBeforeCompile` (Vertex-Entpacken, Voxellicht × AO × Himmelslicht², Blockjitter, Kantenbevel, Muster) – der CSM-Hook wird umwickelt.
 
 ## Worker-Modell (Client)
 

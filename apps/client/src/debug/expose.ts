@@ -12,6 +12,8 @@ export interface RmDebugApi {
   setTime: (timeOfDay: number) => void;
   setPose: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
   renderOnce: () => void;
+  /** Zustände der Spalten/Batches (siehe ChunkManager.debugSummary). */
+  debug: () => Record<string, number>;
   errors: string[];
 }
 

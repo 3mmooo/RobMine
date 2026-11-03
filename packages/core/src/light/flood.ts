@@ -110,7 +110,9 @@ export function initColumnLight(col: Column, reg: BlockRegistry): void {
   for (let cy = 0; cy < CHUNKS_PER_COLUMN; cy++) {
     const chunk = col.chunks[cy]!;
     const below = cy > 0 ? col.chunks[cy - 1]! : null;
-    const scanAll = !chunk.isUniform;
+    // Chunks mit Blöcken ODER mit materialisiertem Licht (Schatten von oben in reiner Luft)
+    // müssen vollständig abgetastet werden – sonst bleiben 15/0-Grenzen im Inneren ohne Seed.
+    const scanAll = !chunk.isUniform || !chunk.isUniformLight;
     const scanBottom =
       chunk.isUniform &&
       !opaque[blockType(chunk.uniformBlock)] &&

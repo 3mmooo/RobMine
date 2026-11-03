@@ -9,9 +9,12 @@ export interface JobRunner<Req, Res> {
   dispose(): void;
 }
 
-/** Führt Jobs synchron im selben Thread aus (Tests, Server-Fallback). */
+/**
+ * Führt Jobs synchron im selben Thread aus (Tests, Server-Fallback).
+ * Hält den Vertrag: Fehler kommen als abgelehntes Promise, nie als synchroner Throw;
+ * `pending` ist nach Rückgabe immer 0, weil der Job bereits gelaufen ist.
+ */
 export class InlineRunner<Req, Res> implements JobRunner<Req, Res> {
-  private inFlight = 0;
   private readonly fn: (req: Req) => Res;
 
   constructor(fn: (req: Req) => Res) {
@@ -19,15 +22,14 @@ export class InlineRunner<Req, Res> implements JobRunner<Req, Res> {
   }
 
   get pending(): number {
-    return this.inFlight;
+    return 0;
   }
 
   run(request: Req): Promise<Res> {
-    this.inFlight++;
     try {
       return Promise.resolve(this.fn(request));
-    } finally {
-      this.inFlight--;
+    } catch (err) {
+      return Promise.reject(err instanceof Error ? err : new Error(String(err)));
     }
   }
 

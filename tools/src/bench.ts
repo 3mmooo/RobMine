@@ -35,6 +35,9 @@ function arg(name: string, fallback: string): string {
 const columns = Number(arg('columns', '200'));
 const seed = Number(arg('seed', '42'));
 const strict = process.argv.includes('--strict');
+/** Toleranzfaktor auf die Budgets (1 = streng; CI nutzt 1,5 wegen geteilter Runner). */
+const tolerance = Number(arg('tolerance', '1'));
+const inCi = process.env['GITHUB_ACTIONS'] === 'true';
 
 const registry = createBlockRegistry();
 const gen = new WorldGenerator(seed, WORLD_BLOCKS);
@@ -129,8 +132,12 @@ console.log(
 );
 let failed = 0;
 for (const [name, median, p95, max, mean, budget] of rows) {
-  const ok = median <= budget;
+  const ok = median <= budget * tolerance;
   if (!ok) failed++;
+  if (ok && median > budget && inCi)
+    console.log(
+      `::warning::${name}: Median ${median.toFixed(2)} über Budget ${budget.toFixed(2)} (innerhalb Toleranz ${tolerance})`,
+    );
   console.log(
     name.padEnd(36),
     median.toFixed(2).padStart(9),
@@ -144,6 +151,7 @@ for (const [name, median, p95, max, mean, budget] of rows) {
 console.log('');
 if (failed > 0) {
   console.log(`${failed} Budget(s) überschritten.`);
+  if (inCi) console.log(`::error::${failed} Bench-Budget(s) überschritten`);
   if (strict) process.exit(1);
 } else {
   console.log('Alle Budgets eingehalten.');

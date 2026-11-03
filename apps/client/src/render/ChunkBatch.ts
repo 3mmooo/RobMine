@@ -3,14 +3,44 @@ import {
   Box3,
   BufferAttribute,
   BufferGeometry,
-  Matrix4,
+  Group,
   type Material,
+  Matrix4,
   Sphere,
   Vector3,
 } from 'three';
 import { CHUNK_SIZE, type MeshBuffers, NORMALS } from '@robmine/core';
 
+export interface ChunkBatchOptions {
+  /** Vertices je Seite (ein BatchedMesh). */
+  pageVertices: number;
+  /** Indizes je Seite (Standard: 1,5 × Vertices). */
+  pageIndices?: number;
+  /** Geometrien je Seite. */
+  pageInstances?: number;
+  /** Maximale Anzahl Seiten (Standard 8). */
+  maxPages?: number;
+  /** Mindestreserve je Geometrie in Vertices (Standard 512). */
+  minReserveVertices?: number;
+  /** Reserve-Faktor über dem Ist-Wert (Standard 1,15). */
+  reserveFactor?: number;
+  castShadow?: boolean;
+  receiveShadow?: boolean;
+  renderOrder?: number;
+}
+
+interface Page {
+  mesh: BatchedMesh;
+  /** Summe der reservierten Bereiche aller lebenden Geometrien. */
+  liveReservedVertices: number;
+  liveReservedIndices: number;
+  /** Reserve gelöschter Geometrien, die erst optimize() zurückholt. */
+  wastedVertices: number;
+  entries: number;
+}
+
 interface Entry {
+  page: Page;
   geometryId: number;
   instanceId: number;
   reservedVertices: number;
@@ -19,8 +49,6 @@ interface Entry {
   indices: number;
 }
 
-const RESERVE_FACTOR = 1.25;
-const MIN_RESERVE = 1024;
 const _matrix = new Matrix4();
 const CHUNK_BOX = new Box3(new Vector3(0, 0, 0), new Vector3(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE));
 const CHUNK_SPHERE = new Sphere(
@@ -29,48 +57,71 @@ const CHUNK_SPHERE = new Sphere(
 );
 
 /**
- * Ein BatchedMesh je Render-Pass: alle Chunk-Geometrien in einem Draw (Multi-Draw),
- * Platzierung über die Instanz-Matrix, Frustum-Culling je Chunk.
+ * Chunk-Geometrien eines Render-Passes in BatchedMesh-"Seiten": alle Chunks einer Seite
+ * in einem Draw (Multi-Draw), Platzierung über die Instanz-Matrix, Culling je Chunk.
+ *
+ * Kapazität wird in RESERVIERTEN Vertices geführt (so belegt BatchedMesh den Puffer),
+ * nicht in Ist-Werten. Ist eine Seite voll, kommt die nächste; ein Ersetzen, das nicht
+ * mehr passt, lässt das alte Mesh stehen (kein Loch).
  */
 export class ChunkBatch {
-  readonly mesh: BatchedMesh;
+  readonly group = new Group();
+  readonly name: string;
+  readonly pages: Page[] = [];
   private readonly entries = new Map<string, Entry>();
-  private readonly maxVertices: number;
-  private readonly maxIndices: number;
+  private readonly material: Material;
+  private readonly pageVertices: number;
+  private readonly pageIndices: number;
+  private readonly pageInstances: number;
+  private readonly maxPages: number;
+  private readonly minReserve: number;
+  private readonly reserveFactor: number;
+  private readonly castShadow: boolean;
+  private readonly receiveShadow: boolean;
+  private readonly renderOrder: number;
   private usedVertices = 0;
   private usedIndices = 0;
-  private wastedVertices = 0;
   overflowCount = 0;
-  readonly name: string;
+  optimizeCount = 0;
 
-  constructor(
-    material: Material,
-    name: string,
-    maxInstances: number,
-    maxVertices: number,
-    maxIndices: number,
-  ) {
+  constructor(material: Material, name: string, options: ChunkBatchOptions) {
+    this.material = material;
     this.name = name;
-    this.maxVertices = maxVertices;
-    this.maxIndices = maxIndices;
-    this.mesh = new BatchedMesh(maxInstances, maxVertices, maxIndices, material);
-    this.mesh.name = `chunks:${name}`;
-    this.mesh.frustumCulled = false; // Culling passiert je Chunk (perObjectFrustumCulled)
-    this.mesh.perObjectFrustumCulled = true;
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
+    this.group.name = `chunks:${name}`;
+    this.pageVertices = options.pageVertices;
+    this.pageIndices = options.pageIndices ?? Math.ceil(options.pageVertices * 1.5);
+    this.pageInstances = options.pageInstances ?? 2048;
+    this.maxPages = options.maxPages ?? 8;
+    this.minReserve = options.minReserveVertices ?? 512;
+    this.reserveFactor = options.reserveFactor ?? 1.15;
+    this.castShadow = options.castShadow ?? true;
+    this.receiveShadow = options.receiveShadow ?? true;
+    this.renderOrder = options.renderOrder ?? 0;
   }
 
   get chunkCount(): number {
     return this.entries.size;
   }
 
+  /** Tatsächlich genutzte Vertices (Statistik). */
   get vertexCount(): number {
     return this.usedVertices;
   }
 
+  /** Reservierte Vertices über alle Seiten (bestimmt die Kapazität). */
+  get reservedVertexCount(): number {
+    let n = 0;
+    for (const p of this.pages) n += p.liveReservedVertices;
+    return n;
+  }
+
+  get pageCount(): number {
+    return this.pages.length;
+  }
+
+  /** Anteil der reservierten Kapazität am Maximum (alle möglichen Seiten). */
   get capacityUsed(): number {
-    return this.usedVertices / this.maxVertices;
+    return this.reservedVertexCount / (this.pageVertices * this.maxPages);
   }
 
   has(key: string): boolean {
@@ -80,62 +131,38 @@ export class ChunkBatch {
   /** Setzt oder ersetzt das Mesh eines Chunks. Liefert false bei Kapazitätsüberlauf. */
   set(key: string, buffers: MeshBuffers, cx: number, cy: number, cz: number): boolean {
     const geometry = buildGeometry(buffers);
-    const existing = this.entries.get(key);
     try {
+      const existing = this.entries.get(key);
       if (existing) {
         if (
           buffers.vertexCount <= existing.reservedVertices &&
           buffers.indexCount <= existing.reservedIndices
         ) {
-          this.mesh.setGeometryAt(existing.geometryId, geometry);
+          existing.page.mesh.setGeometryAt(existing.geometryId, geometry);
           this.usedVertices += buffers.vertexCount - existing.vertices;
           this.usedIndices += buffers.indexCount - existing.indices;
           existing.vertices = buffers.vertexCount;
           existing.indices = buffers.indexCount;
-          geometry.dispose();
           return true;
         }
+        const rv = this.reserve(buffers.vertexCount, this.minReserve);
+        const ri = this.reserve(buffers.indexCount, Math.ceil(this.minReserve * 1.5));
+        const page = this.findPage(rv, ri, existing);
+        if (!page) {
+          this.overflowCount++;
+          return false; // altes Mesh bleibt sichtbar
+        }
         this.remove(key);
+        return this.insert(page, key, geometry, buffers, rv, ri, cx, cy, cz);
       }
-      const reservedVertices = Math.max(
-        MIN_RESERVE,
-        Math.ceil(buffers.vertexCount * RESERVE_FACTOR),
-      );
-      const reservedIndices = Math.max(
-        Math.ceil(MIN_RESERVE * 1.5),
-        Math.ceil(buffers.indexCount * RESERVE_FACTOR),
-      );
-      if (
-        this.usedVertices + reservedVertices > this.maxVertices ||
-        this.usedIndices + reservedIndices > this.maxIndices
-      ) {
+      const rv = this.reserve(buffers.vertexCount, this.minReserve);
+      const ri = this.reserve(buffers.indexCount, Math.ceil(this.minReserve * 1.5));
+      const page = this.findPage(rv, ri, null);
+      if (!page) {
         this.overflowCount++;
-        geometry.dispose();
         return false;
       }
-      let geometryId: number;
-      try {
-        geometryId = this.mesh.addGeometry(geometry, reservedVertices, reservedIndices);
-      } catch {
-        // Fragmentiert: einmal aufräumen und erneut versuchen.
-        this.mesh.optimize();
-        this.wastedVertices = 0;
-        geometryId = this.mesh.addGeometry(geometry, reservedVertices, reservedIndices);
-      }
-      const instanceId = this.mesh.addInstance(geometryId);
-      _matrix.makeTranslation(cx * CHUNK_SIZE, cy * CHUNK_SIZE, cz * CHUNK_SIZE);
-      this.mesh.setMatrixAt(instanceId, _matrix);
-      this.entries.set(key, {
-        geometryId,
-        instanceId,
-        reservedVertices,
-        reservedIndices,
-        vertices: buffers.vertexCount,
-        indices: buffers.indexCount,
-      });
-      this.usedVertices += buffers.vertexCount;
-      this.usedIndices += buffers.indexCount;
-      return true;
+      return this.insert(page, key, geometry, buffers, rv, ri, cx, cy, cz);
     } catch (err) {
       this.overflowCount++;
       console.warn(`[ChunkBatch:${this.name}] Geometrie konnte nicht eingefügt werden`, err);
@@ -150,22 +177,34 @@ export class ChunkBatch {
     if (!e) return;
     this.entries.delete(key);
     try {
-      this.mesh.deleteInstance(e.instanceId);
-      this.mesh.deleteGeometry(e.geometryId);
+      e.page.mesh.deleteInstance(e.instanceId);
+      e.page.mesh.deleteGeometry(e.geometryId);
     } catch (err) {
       console.warn(`[ChunkBatch:${this.name}] Entfernen fehlgeschlagen`, err);
     }
+    e.page.liveReservedVertices -= e.reservedVertices;
+    e.page.liveReservedIndices -= e.reservedIndices;
+    e.page.wastedVertices += e.reservedVertices;
+    e.page.entries--;
     this.usedVertices -= e.vertices;
     this.usedIndices -= e.indices;
-    this.wastedVertices += e.reservedVertices;
   }
 
-  /** Packt den Puffer neu, wenn mehr als 30 % Verschnitt entstanden ist. */
-  maybeOptimize(): boolean {
-    if (this.wastedVertices < this.maxVertices * 0.3) return false;
-    this.mesh.optimize();
-    this.wastedVertices = 0;
-    return true;
+  /** Packt Seiten neu, auf denen mehr als 30 % Verschnitt entstanden ist. */
+  maybeOptimize(): number {
+    let n = 0;
+    for (const p of this.pages) {
+      if (p.wastedVertices < this.pageVertices * 0.3) continue;
+      p.mesh.optimize();
+      p.wastedVertices = 0;
+      this.optimizeCount++;
+      n++;
+    }
+    return n;
+  }
+
+  setVisible(visible: boolean): void {
+    this.group.visible = visible;
   }
 
   clear(): void {
@@ -174,7 +213,96 @@ export class ChunkBatch {
 
   dispose(): void {
     this.clear();
-    this.mesh.dispose();
+    for (const p of this.pages) {
+      this.group.remove(p.mesh);
+      p.mesh.dispose();
+    }
+    this.pages.length = 0;
+  }
+
+  private reserve(count: number, min: number): number {
+    return Math.max(min, Math.ceil(count * this.reserveFactor));
+  }
+
+  /** Seite mit genug reservierbarer Kapazität – die Reserve von `existing` zählt als frei. */
+  private findPage(rv: number, ri: number, existing: Entry | null): Page | null {
+    for (const p of this.pages) {
+      const freeV =
+        this.pageVertices -
+        p.liveReservedVertices +
+        (existing?.page === p ? existing.reservedVertices : 0);
+      const freeI =
+        this.pageIndices -
+        p.liveReservedIndices +
+        (existing?.page === p ? existing.reservedIndices : 0);
+      if (freeV >= rv && freeI >= ri) return p;
+    }
+    if (this.pages.length < this.maxPages) return this.addPage();
+    return null;
+  }
+
+  private insert(
+    page: Page,
+    key: string,
+    geometry: BufferGeometry,
+    buffers: MeshBuffers,
+    rv: number,
+    ri: number,
+    cx: number,
+    cy: number,
+    cz: number,
+  ): boolean {
+    const mesh = page.mesh;
+    // Fragmentiert (gelöschte Bereiche hinter dem Schreibzeiger)? Dann einmal kompaktieren.
+    if (mesh.unusedVertexCount < rv || mesh.unusedIndexCount < ri) {
+      mesh.optimize();
+      page.wastedVertices = 0;
+      this.optimizeCount++;
+    }
+    const geometryId = mesh.addGeometry(geometry, rv, ri);
+    const instanceId = mesh.addInstance(geometryId);
+    _matrix.makeTranslation(cx * CHUNK_SIZE, cy * CHUNK_SIZE, cz * CHUNK_SIZE);
+    mesh.setMatrixAt(instanceId, _matrix);
+    this.entries.set(key, {
+      page,
+      geometryId,
+      instanceId,
+      reservedVertices: rv,
+      reservedIndices: ri,
+      vertices: buffers.vertexCount,
+      indices: buffers.indexCount,
+    });
+    page.liveReservedVertices += rv;
+    page.liveReservedIndices += ri;
+    page.entries++;
+    this.usedVertices += buffers.vertexCount;
+    this.usedIndices += buffers.indexCount;
+    return true;
+  }
+
+  private addPage(): Page {
+    const mesh = new BatchedMesh(
+      this.pageInstances,
+      this.pageVertices,
+      this.pageIndices,
+      this.material,
+    );
+    mesh.name = `chunks:${this.name}:${this.pages.length}`;
+    mesh.frustumCulled = false; // Culling passiert je Chunk (perObjectFrustumCulled)
+    mesh.perObjectFrustumCulled = true;
+    mesh.castShadow = this.castShadow;
+    mesh.receiveShadow = this.receiveShadow;
+    mesh.renderOrder = this.renderOrder;
+    this.group.add(mesh);
+    const page: Page = {
+      mesh,
+      liveReservedVertices: 0,
+      liveReservedIndices: 0,
+      wastedVertices: 0,
+      entries: 0,
+    };
+    this.pages.push(page);
+    return page;
   }
 }
 

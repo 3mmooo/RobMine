@@ -50,8 +50,14 @@ float rmFlags = floor( a_data.x / 8.0 );
 int rmFlagBits = int( rmFlags + 0.5 );
 #ifdef RM_FLUID
   if ( ( rmFlagBits & 2 ) != 0 ) {
-    // Wasseroberfläche etwas absenken + sanfte Welle
-    transformed.y -= 0.125 + 0.03 * sin( uTime * 1.3 + float( gl_VertexID ) * 0.7 );
+    // Wasseroberfläche etwas absenken + sanfte Welle. Phase aus der Weltposition:
+    // gl_VertexID wäre der globale Index im BatchedMesh (hängt von Upload-Reihenfolge und
+    // optimize()-Repacks ab) → nicht deterministisch, springt bei Repacks.
+    vec4 rmWave = vec4( position, 1.0 );
+    #ifdef USE_BATCHING
+      rmWave = batchingMatrix * rmWave;
+    #endif
+    transformed.y -= 0.125 + 0.03 * sin( uTime * 1.3 + dot( rmWave.xz, vec2( 0.7, 0.9 ) ) );
   }
 #endif
 vRmFlags = rmFlags;

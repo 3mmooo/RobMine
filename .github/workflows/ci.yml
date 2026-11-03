@@ -36,8 +36,8 @@ jobs:
       - name: Unit-Tests
         run: pnpm test
 
-      - name: Bench (Budgets)
-        run: pnpm bench
+      - name: Bench (Budgets, Toleranz 1,5× für geteilte CI-Runner)
+        run: pnpm bench --strict --tolerance 1.5
 
       - name: Client bauen
         run: pnpm build

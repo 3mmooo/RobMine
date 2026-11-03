@@ -6,7 +6,7 @@
 
 ## Schnellstart
 
-Voraussetzungen: Node ≥ 22.12, pnpm 10 (`corepack enable` reicht).
+Voraussetzungen: Node ≥ 22.18 (führt `.ts`-Werkzeuge direkt aus), pnpm 10 (`corepack enable` reicht).
 
 ```bash
 pnpm install

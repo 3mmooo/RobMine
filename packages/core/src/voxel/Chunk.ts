@@ -166,3 +166,28 @@ export function columnMaterializedChunks(col: Column): number {
   for (const c of col.chunks) if (!c.isUniform) n++;
   return n;
 }
+
+/** Berechnet die Höhenkarte (oberster Nicht-Luft-Block je (x,z)) neu, z. B. nach Blockänderungen. */
+export function recomputeColumnHeights(col: Column): void {
+  for (let z = 0; z < CHUNK_SIZE_LOCAL; z++) {
+    for (let x = 0; x < CHUNK_SIZE_LOCAL; x++) {
+      let h = 0;
+      for (let cy = CHUNKS_PER_COLUMN - 1; cy >= 0 && h === 0; cy--) {
+        const chunk = col.chunks[cy]!;
+        if (chunk.isUniform) {
+          if (chunk.uniformBlock !== AIR) h = (cy << CHUNK_BITS) + CHUNK_SIZE_LOCAL - 1;
+          continue;
+        }
+        for (let ly = CHUNK_SIZE_LOCAL - 1; ly >= 0; ly--) {
+          if (chunk.blocks![chunkIndex(x, ly, z)] !== AIR) {
+            h = (cy << CHUNK_BITS) + ly;
+            break;
+          }
+        }
+      }
+      col.height[x + z * CHUNK_SIZE_LOCAL] = h;
+    }
+  }
+}
+
+const CHUNK_SIZE_LOCAL = 1 << CHUNK_BITS;

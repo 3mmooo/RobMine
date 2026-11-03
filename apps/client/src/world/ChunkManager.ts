@@ -5,15 +5,12 @@ import {
   CHUNK_SIZE,
   CHUNKS_PER_COLUMN,
   chunkHasBlocks,
+  type ChunkMesh,
   type Column,
   columnKey,
   createPaddedChunk,
-  decodeChunk,
-  initColumnLight,
-  type BlockRegistry,
 } from '@robmine/core';
 import { BLOCK } from '@robmine/content';
-import type { ChunkMesh } from '@robmine/core';
 import type { Renderer } from '../render/Renderer.ts';
 import type { Connection } from '../net/Connection.ts';
 import type { WorkerPool } from '../workers/rpc.ts';
@@ -36,6 +33,8 @@ interface ColumnEntry {
   meshedMask: number;
   /** Bit cy gesetzt = Mesh-Job läuft. */
   meshingMask: number;
+  /** Nach Kapazitätsüberlauf: ab wann erneut gemesht werden darf. */
+  meshRetryAt: number;
 }
 
 interface PendingMesh {
@@ -44,6 +43,8 @@ interface PendingMesh {
   cy: number;
   cz: number;
   mesh: ChunkMesh;
+  /** Identität des Spalteneintrags – veraltete Ergebnisse werden verworfen. */
+  entry: ColumnEntry;
 }
 
 export interface ChunkStats {
@@ -61,13 +62,18 @@ export interface ChunkStats {
   meshMsP95: number;
   paddedMsAvg: number;
   opaqueVertices: number;
+  opaqueReserved: number;
+  pages: number;
   overflow: number;
+  optimizes: number;
+  retries: number;
 }
 
 const UNLOAD_MARGIN = 2;
 const MAX_GEN_INFLIGHT_FACTOR = 3;
 const MAX_PADDED_PER_UPDATE = 6;
 const MAX_UPLOADS_PER_FRAME = 4;
+const RETRY_DELAY_MS = 1500;
 
 class Samples {
   private readonly values: number[] = [];
@@ -86,21 +92,23 @@ class Samples {
     const sorted = [...this.values].sort((a, b) => a - b);
     return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!;
   }
-  get count(): number {
-    return this.values.length;
-  }
 }
 
 /**
  * Lädt Spalten im Radius um die Kamera (Spirale nach Distanz), lässt sie im
- * Gen-Pool erzeugen, mesht Chunks im Mesh-Pool, sobald alle 8 Nachbarspalten da
- * sind, und lädt Meshes mit Upload-Budget je Frame in die Batches.
+ * Gen-Pool erzeugen (inkl. Dekodieren veränderter Chunks und Licht), mesht Chunks im
+ * Mesh-Pool, sobald alle 8 Nachbarspalten da sind, und lädt Meshes mit Zeitbudget je
+ * Frame in die Batches. Fehlgeschlagene Spalten/Chunks werden nach kurzer Pause erneut
+ * versucht.
  */
 export class ChunkManager {
   private readonly columns = new Map<string, ColumnEntry>();
+  /** Spalten, deren Laden fehlschlug: Schlüssel → Zeitpunkt des nächsten Versuchs. */
+  private readonly retryAt = new Map<string, number>();
   private readonly pendingMeshes: PendingMesh[] = [];
   private readonly padded = createPaddedChunk();
   private chunksMeshed = 0;
+  private retries = 0;
   private lastCenter: [number, number] | null = null;
   readonly genSamples = new Samples();
   readonly lightSamples = new Samples();
@@ -110,12 +118,10 @@ export class ChunkManager {
     const e = this.columns.get(columnKey(cx, cz));
     return e && e.state === 'ready' ? (e.col ?? undefined) : undefined;
   };
-
   private readonly renderer: Renderer;
   private readonly connection: Connection;
   private readonly genPool: WorkerPool<GenRequest, GenResponse>;
   private readonly meshPool: WorkerPool<MeshRequest, MeshResponse>;
-  private readonly registry: BlockRegistry;
   readonly seed: number;
   radius: number;
 
@@ -124,7 +130,6 @@ export class ChunkManager {
     connection: Connection,
     genPool: WorkerPool<GenRequest, GenResponse>,
     meshPool: WorkerPool<MeshRequest, MeshResponse>,
-    registry: BlockRegistry,
     seed: number,
     radius: number,
   ) {
@@ -132,12 +137,11 @@ export class ChunkManager {
     this.connection = connection;
     this.genPool = genPool;
     this.meshPool = meshPool;
-    this.registry = registry;
     this.seed = seed;
     this.radius = radius;
   }
 
-  /** Spalten im Radius anfordern, Meshing anstoßen, weit entfernte entladen. */
+  /** Je Frame: weit entfernte Spalten entladen, fehlende anfordern, Meshing anstoßen. */
   update(camX: number, camZ: number): void {
     const ccx = Math.floor(camX / CHUNK_SIZE);
     const ccz = Math.floor(camZ / CHUNK_SIZE);
@@ -145,23 +149,31 @@ export class ChunkManager {
       !this.lastCenter || this.lastCenter[0] !== ccx || this.lastCenter[1] !== ccz;
     this.lastCenter = [ccx, ccz];
 
-    if (centerChanged) {
-      this.requestMissing(ccx, ccz);
-      this.unloadFar(ccx, ccz);
-    }
+    if (centerChanged) this.unloadFar(ccx, ccz);
+    this.requestMissing(ccx, ccz);
     this.scheduleMeshing(ccx, ccz);
   }
 
   private requestMissing(ccx: number, ccz: number): void {
     const r = this.radius;
     const maxInflight = this.genPool.size * MAX_GEN_INFLIGHT_FACTOR;
-    // Spirale: alle Offsets nach Distanz sortiert (einmal je Radius berechnet).
+    // Drossel über die Einträge in requested/generating – genPool.pending taugt nicht,
+    // weil Gen-Jobs erst nach der asynchronen ChunkColumn-Antwort eingereiht werden.
+    let inflight = 0;
+    for (const e of this.columns.values()) if (e.state !== 'ready') inflight++;
+    if (inflight >= maxInflight) return;
+    const now = performance.now();
     for (const [dx, dz] of spiralOffsets(r)) {
-      if (this.genPool.pending >= maxInflight) break;
+      if (inflight >= maxInflight) break;
       const cx = ccx + dx;
       const cz = ccz + dz;
       const key = columnKey(cx, cz);
       if (this.columns.has(key)) continue;
+      const retry = this.retryAt.get(key);
+      if (retry !== undefined) {
+        if (now < retry) continue;
+        this.retryAt.delete(key);
+      }
       const entry: ColumnEntry = {
         cx,
         cz,
@@ -169,8 +181,10 @@ export class ChunkManager {
         col: null,
         meshedMask: 0,
         meshingMask: 0,
+        meshRetryAt: 0,
       };
       this.columns.set(key, entry);
+      inflight++;
       void this.loadColumn(entry, dx * dx + dz * dz);
     }
   }
@@ -181,49 +195,45 @@ export class ChunkManager {
       const msg = await this.connection.requestColumn(entry.cx, entry.cz);
       if (this.columns.get(key) !== entry) return; // inzwischen entladen
       entry.state = 'generating';
-      let col: Column;
-      if (msg.pristineMask === 0xff) {
-        // Seed-Streaming: unveränderte Spalte selbst erzeugen.
-        const res = await this.genPool.run(
-          { seed: this.seed, cx: entry.cx, cz: entry.cz },
-          [],
-          priority,
-        );
-        if (this.columns.get(key) !== entry) return;
-        this.genSamples.push(res.genMs);
-        this.lightSamples.push(res.lightMs);
-        col = payloadToColumn(res.column);
-      } else {
-        // Veränderte Spalte vom Server: Blobs dekodieren, fehlende Chunks (pristine) generieren.
-        const res = await this.genPool.run(
-          { seed: this.seed, cx: entry.cx, cz: entry.cz },
-          [],
-          priority,
-        );
-        if (this.columns.get(key) !== entry) return;
-        col = payloadToColumn(res.column);
-        for (const c of msg.chunks) col.chunks[c.cy] = decodeChunk(c.blob);
-        initColumnLight(col, this.registry);
-      }
-      entry.col = col;
+      // Blobs stammen aus ByteReader.bytes() (eigene Kopien) → Transfer ist sicher.
+      const transfer = msg.chunks.map((c) => c.blob.buffer as ArrayBuffer);
+      const res = await this.genPool.run(
+        {
+          seed: this.seed,
+          cx: entry.cx,
+          cz: entry.cz,
+          pristineMask: msg.pristineMask,
+          chunks: msg.chunks,
+        },
+        transfer,
+        priority,
+      );
+      if (this.columns.get(key) !== entry) return;
+      this.genSamples.push(res.genMs);
+      this.lightSamples.push(res.lightMs);
+      entry.col = payloadToColumn(res.column);
       entry.state = 'ready';
-      // Nach Nachbar-Ankunft dürfen angrenzende Spalten meshen – passiert im nächsten scheduleMeshing.
     } catch (err) {
-      if ((err as Error).message !== 'abgebrochen')
-        console.warn('Spalte konnte nicht geladen werden', entry.cx, entry.cz, err);
       if (this.columns.get(key) === entry) this.columns.delete(key);
+      if ((err as Error).message !== 'abgebrochen') {
+        console.warn('Spalte konnte nicht geladen werden', entry.cx, entry.cz, err);
+        this.retryAt.set(key, performance.now() + RETRY_DELAY_MS);
+        this.retries++;
+      }
     }
   }
 
   private unloadFar(ccx: number, ccz: number): void {
     const limit = this.radius + UNLOAD_MARGIN;
     for (const [key, e] of this.columns) {
-      const dx = e.cx - ccx;
-      const dz = e.cz - ccz;
-      if (Math.max(Math.abs(dx), Math.abs(dz)) <= limit) continue;
+      if (Math.max(Math.abs(e.cx - ccx), Math.abs(e.cz - ccz)) <= limit) continue;
       this.columns.delete(key);
       this.connection.cancelColumn(e.cx, e.cz);
       for (let cy = 0; cy < CHUNKS_PER_COLUMN; cy++) this.removeChunkMesh(chunkKey(e.cx, cy, e.cz));
+    }
+    for (const key of this.retryAt.keys()) {
+      const [kx, kz] = key.split(',').map(Number) as [number, number];
+      if (Math.max(Math.abs(kx - ccx), Math.abs(kz - ccz)) > limit) this.retryAt.delete(key);
     }
     this.genPool.prune((req) => Math.max(Math.abs(req.cx - ccx), Math.abs(req.cz - ccz)) <= limit);
     this.meshPool.prune((req) => Math.max(Math.abs(req.cx - ccx), Math.abs(req.cz - ccz)) <= limit);
@@ -232,12 +242,14 @@ export class ChunkManager {
   private scheduleMeshing(ccx: number, ccz: number): void {
     let built = 0;
     const r = this.radius;
+    const now = performance.now();
     for (const [dx, dz] of spiralOffsets(r)) {
       if (built >= MAX_PADDED_PER_UPDATE) break;
       if (this.meshPool.queued > this.meshPool.size * 4) break;
       const e = this.columns.get(columnKey(ccx + dx, ccz + dz));
       if (!e || e.state !== 'ready' || !e.col) continue;
       if ((e.meshedMask | e.meshingMask) === 0xff) continue;
+      if (e.meshRetryAt > now) continue;
       if (!this.neighborsReady(e.cx, e.cz)) continue;
       for (let cy = 0; cy < CHUNKS_PER_COLUMN && built < MAX_PADDED_PER_UPDATE; cy++) {
         const bit = 1 << cy;
@@ -270,7 +282,7 @@ export class ChunkManager {
             if (this.columns.get(columnKey(e.cx, e.cz)) !== e) return;
             e.meshingMask &= ~bit;
             e.meshedMask |= bit;
-            this.pendingMeshes.push({ key, cx: e.cx, cy, cz: e.cz, mesh: res.mesh });
+            this.pendingMeshes.push({ key, cx: e.cx, cy, cz: e.cz, mesh: res.mesh, entry: e });
           })
           .catch((err: Error) => {
             e.meshingMask &= ~bit;
@@ -293,7 +305,8 @@ export class ChunkManager {
 
   /**
    * Lädt fertige Meshes in die Batches: mindestens `minPerFrame`, danach weiter, solange das
-   * Zeitbudget (ms) nicht überschritten ist – bei niedriger Framerate laden wir so mehr je Frame.
+   * Zeitbudget (ms) nicht überschritten ist. Verwaiste Ergebnisse (Spalte entladen oder neu
+   * angefordert) werden verworfen; bei Kapazitätsüberlauf wird der Chunk später neu gemesht.
    */
   applyPending(minPerFrame = MAX_UPLOADS_PER_FRAME, budgetMs = 3, maxPerFrame = 48): number {
     let n = 0;
@@ -301,14 +314,23 @@ export class ChunkManager {
     while (this.pendingMeshes.length > 0 && n < maxPerFrame) {
       if (n >= minPerFrame && performance.now() - t0 > budgetMs) break;
       const p = this.pendingMeshes.shift()!;
+      if (this.columns.get(columnKey(p.cx, p.cz)) !== p.entry) continue;
       const r = this.renderer;
-      if (p.mesh.opaque) r.opaque.set(p.key, p.mesh.opaque, p.cx, p.cy, p.cz);
+      let ok = true;
+      if (p.mesh.opaque) ok = r.opaque.set(p.key, p.mesh.opaque, p.cx, p.cy, p.cz) && ok;
       else r.opaque.remove(p.key);
-      if (p.mesh.cutout) r.cutout.set(p.key, p.mesh.cutout, p.cx, p.cy, p.cz);
+      if (p.mesh.cutout) ok = r.cutout.set(p.key, p.mesh.cutout, p.cx, p.cy, p.cz) && ok;
       else r.cutout.remove(p.key);
-      if (p.mesh.fluid) r.fluid.set(p.key, p.mesh.fluid, p.cx, p.cy, p.cz);
+      if (p.mesh.fluid) ok = r.fluid.set(p.key, p.mesh.fluid, p.cx, p.cy, p.cz) && ok;
       else r.fluid.remove(p.key);
-      this.chunksMeshed++;
+      if (ok) {
+        this.chunksMeshed++;
+      } else {
+        // Kapazität voll: Bit freigeben, nach kurzer Pause erneut meshen.
+        p.entry.meshedMask &= ~(1 << p.cy);
+        p.entry.meshRetryAt = performance.now() + RETRY_DELAY_MS;
+        this.retries++;
+      }
       n++;
     }
     if (n > 0) {
@@ -334,9 +356,12 @@ export class ChunkManager {
     if (this.genPool.pending > 0 || this.meshPool.pending > 0 || this.pendingMeshes.length > 0) {
       return false;
     }
+    if (this.retryAt.size > 0) return false;
+    const now = performance.now();
     let meshable = 0;
     for (const e of this.columns.values()) {
       if (e.state !== 'ready') return false;
+      if (e.meshRetryAt > now) return false;
       if (!this.neighborsReady(e.cx, e.cz)) continue;
       meshable++;
       if (e.meshedMask !== 0xff) return false;
@@ -347,11 +372,12 @@ export class ChunkManager {
   stats(): ChunkStats {
     let loaded = 0;
     for (const e of this.columns.values()) if (e.state === 'ready') loaded++;
+    const r = this.renderer;
     return {
       columnsLoaded: loaded,
       columnsRequested: this.columns.size - loaded,
       chunksMeshed: this.chunksMeshed,
-      chunksVisible: this.renderer.opaque.chunkCount,
+      chunksVisible: r.opaque.chunkCount,
       genPending: this.genPool.pending,
       meshPending: this.meshPool.pending,
       uploadsPending: this.pendingMeshes.length,
@@ -361,11 +387,52 @@ export class ChunkManager {
       meshMsAvg: this.meshSamples.avg,
       meshMsP95: this.meshSamples.p95,
       paddedMsAvg: this.paddedSamples.avg,
-      opaqueVertices: this.renderer.opaque.vertexCount,
-      overflow:
-        this.renderer.opaque.overflowCount +
-        this.renderer.cutout.overflowCount +
-        this.renderer.fluid.overflowCount,
+      opaqueVertices: r.opaque.vertexCount,
+      opaqueReserved: r.opaque.reservedVertexCount,
+      pages: r.opaque.pageCount + r.cutout.pageCount + r.fluid.pageCount,
+      overflow: r.opaque.overflowCount + r.cutout.overflowCount + r.fluid.overflowCount,
+      optimizes: r.opaque.optimizeCount + r.cutout.optimizeCount + r.fluid.optimizeCount,
+      retries: this.retries,
+    };
+  }
+
+  /** Debug: Zustände der Spalten und Batches (für Tests/Konsole). */
+  debugSummary(): Record<string, number> {
+    let ready = 0;
+    let meshable = 0;
+    let fullyMeshed = 0;
+    let meshing = 0;
+    let retryPending = 0;
+    let chunksWithBlocks = 0;
+    let chunksInOpaque = 0;
+    const now = performance.now();
+    for (const e of this.columns.values()) {
+      if (e.state !== 'ready') continue;
+      ready++;
+      if (e.meshingMask) meshing++;
+      if (e.meshRetryAt > now) retryPending++;
+      if (!this.neighborsReady(e.cx, e.cz)) continue;
+      meshable++;
+      if (e.meshedMask === 0xff) fullyMeshed++;
+      for (let cy = 0; cy < CHUNKS_PER_COLUMN; cy++) {
+        if (e.col && chunkHasBlocks(e.col, cy)) chunksWithBlocks++;
+        if (this.renderer.opaque.has(chunkKey(e.cx, cy, e.cz))) chunksInOpaque++;
+      }
+    }
+    return {
+      entries: this.columns.size,
+      ready,
+      meshable,
+      fullyMeshed,
+      meshing,
+      retryPending,
+      retryAt: this.retryAt.size,
+      pendingMeshes: this.pendingMeshes.length,
+      chunksWithBlocks,
+      chunksInOpaque,
+      opaqueEntries: this.renderer.opaque.chunkCount,
+      cutoutEntries: this.renderer.cutout.chunkCount,
+      fluidEntries: this.renderer.fluid.chunkCount,
     };
   }
 
@@ -380,7 +447,7 @@ export class ChunkManager {
     return this.columns.size;
   }
 
-  /** Erzwingt Neuladen (z. B. nach Teleport weit weg). */
+  /** Erzwingt Neuberechnung des Zentrums (z. B. nach Teleport). */
   resetCenter(): void {
     this.lastCenter = null;
   }

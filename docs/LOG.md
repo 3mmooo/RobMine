@@ -27,3 +27,22 @@
 Ø 1.347 Quads je Oberflächen-Chunk; Client-Bundle 161 KB gzip (+ 3 Worker à 4–8 KB). E2E (Chromium/SwiftShader, Radius 6): 137 Spalten, 350 Chunks gemesht, 4 Draw Calls (Niedrig) bzw. 10 (Mittel mit 3 Schattenkaskaden), 455k Dreiecke, 0 Konsolenfehler, Geometrien stabil nach Teleport.
 
 **Perf-Bericht des Users (echte GPU):** ausstehend – bitte F3 → „Bericht kopieren" hier eintragen.
+
+## Session 1b – 2026-11-03 – Adversarialer Review von Phase 0
+
+3 unabhängige Reviewer (core / client / protokoll+tooling) + je Fund ein Skeptiker: 14 Funde, 10 bestätigt, alle behoben.
+
+| #   | Fund                                                                                                                                                       | Behebung                                                                                                          |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1   | Licht-BFS: Seeds übersprangen uniforme Luft-Chunks mit materialisiertem Licht → schwarze Unterseiten von Plattformen an Chunk-Unterkanten (ab Blocksetzen) | `scanAll` auch bei materialisiertem Licht; Regressionstest                                                        |
+| 2   | `ChunkBatch` zählte Ist- statt Reserve-Vertices; Puffer bei Radius 8 schon voll → fehlende Chunks, Repack-Ruckler, verschwindende Chunks beim Remesh       | Reserve-basierte Zählung, mehrere BatchedMesh-Seiten je Pass (wachsen bei Bedarf), Ersetzen ohne Loch, Unit-Tests |
+| 3   | Lade-Drossel ganz-oder-gar-nicht und nur bei Chunk-Wechsel → Teleport während des Ladens ergab leere Welt                                                  | Anfordern jeden Frame, Drossel über Einträge statt Pool, Entladen vor Anfordern, Retry mit Backoff                |
+| 4   | Veränderte Spalten wurden im Main-Thread dekodiert und neu beleuchtet; height/biome blieben falsch                                                         | Dekodieren + Höhenkarte + Licht im Gen-Worker                                                                     |
+| 5   | `Connection` ohne Fehlerpfad: Waiter hingen bei Decode-Fehler/Kick/Close ewig                                                                              | `fail()` lehnt alle Waiter ab, Kick/Close/Decode-Fehler beenden sauber, Hinweis im HUD                            |
+| 6   | Verwaiste Mesh-Ergebnisse nach Teleport landeten im Batch                                                                                                  | Identitätsprüfung des Spalteneintrags in `applyPending`                                                           |
+| 7   | Wasserwelle aus `gl_VertexID` – nicht deterministisch, sprang bei Repacks                                                                                  | Phase aus der Weltposition                                                                                        |
+| 8   | Kick beendete die Sitzung nicht, Protokollversion und Hello-Gating wirkungslos                                                                             | Sitzungszustand (awaitingHello/active/closed), Kick schließt Transport, Tests                                     |
+| 9   | `engines`/README erlaubten Node 22.12, Type-Stripping ist erst ab 22.18 Standard                                                                           | Node ≥ 22.18                                                                                                      |
+| 10  | CI-Bench konnte nie fehlschlagen                                                                                                                           | `--strict --tolerance 1.5` + GitHub-Annotationen                                                                  |
+
+Zusätzlich aus den „widerlegten" Funden übernommen: Byte-Budget je Rahmen beim Sender (`encodeFrames`, 1 MB), Plausibilitätsprüfung der Payload-Länge im RMC1-Decoder, `InlineRunner` liefert Fehler als Promise. Beim Nachtest fiel noch auf, dass `window.__rm.stats()` den 500-ms-Overlay-Cache lieferte – jetzt immer frisch.

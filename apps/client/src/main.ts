@@ -1,5 +1,4 @@
 import { normalizeSeed } from '@robmine/core';
-import { createBlockRegistry } from '@robmine/content';
 import { PortTransport } from '@robmine/protocol';
 import { Renderer, type QualityLevel } from './render/Renderer.ts';
 import { ChunkManager } from './world/ChunkManager.ts';
@@ -56,15 +55,14 @@ async function main(): Promise<void> {
   const params = readParams();
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const hint = document.getElementById('hint');
-  const registry = createBlockRegistry();
 
   const renderer = new Renderer(canvas, params.quality, params.radius);
   const fly = new FlyCamera(renderer.camera, canvas);
   fly.enabled = !params.deterministic;
   for (const h of params.hide) {
-    if (h === 'opaque') renderer.opaque.mesh.visible = false;
-    if (h === 'cutout') renderer.cutout.mesh.visible = false;
-    if (h === 'fluid') renderer.fluid.mesh.visible = false;
+    if (h === 'opaque') renderer.opaque.setVisible(false);
+    if (h === 'cutout') renderer.cutout.setVisible(false);
+    if (h === 'fluid') renderer.fluid.setVisible(false);
     if (h === 'sky') renderer.sky.mesh.visible = false;
   }
 
@@ -93,7 +91,13 @@ async function main(): Promise<void> {
   };
   simWorker.postMessage(init, [channel.port2]);
   const connection = new Connection(new PortTransport(channel.port1));
-  connection.onKick = (reason) => console.error('Verbindung beendet:', reason);
+  connection.onFail = (err) => {
+    console.error('Verbindung verloren:', err.message);
+    if (hint) {
+      hint.textContent = `Verbindung verloren: ${err.message} – Seite neu laden.`;
+      hint.classList.remove('hidden');
+    }
+  };
   const welcome = await connection.hello('', BUILD);
 
   const chunks = new ChunkManager(
@@ -101,7 +105,6 @@ async function main(): Promise<void> {
     connection,
     genPool,
     meshPool,
-    registry,
     welcome.worldSeed,
     renderer.preset.radius,
   );
@@ -119,8 +122,8 @@ async function main(): Promise<void> {
     ready: false,
     frames: 0,
     errors: [] as string[],
-    stats: (): DebugReport => overlay.report(),
-    report: () => JSON.stringify(overlay.report(), null, 2),
+    stats: (): DebugReport => overlay.fresh(),
+    report: () => JSON.stringify(overlay.fresh(), null, 2),
     teleport: (x: number, y: number, z: number) => {
       fly.setPose(x, y, z, fly.yaw, fly.pitch);
       chunks.resetCenter();
@@ -135,6 +138,7 @@ async function main(): Promise<void> {
       renderer.setTimeOfDay(timeOfDay);
     },
     renderOnce: () => frame(performance.now(), true),
+    debug: () => chunks.debugSummary(),
   };
   exposeDebugApi(api);
 

@@ -18,6 +18,10 @@ export interface GenRequest {
   seed: number;
   cx: number;
   cz: number;
+  /** Bit cy gesetzt = Chunk unverändert (aus dem Seed erzeugen); sonst Blob aus `chunks`. */
+  pristineMask: number;
+  /** Veränderte Chunks vom Server (RMC1-Blobs), werden im Worker dekodiert. */
+  chunks: { cy: number; blob: Uint8Array }[];
 }
 
 export interface GenResponse {
