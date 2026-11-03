@@ -1,7 +1,8 @@
 import { AIR, normalizeSeed, PLAYER, RenderPass } from '@robmine/core';
-import { BLOCK, createBlockRegistry } from '@robmine/content';
+import { BLOCK, createBlockRegistry, ITEM } from '@robmine/content';
 import { Hotbar } from './ui/Hotbar.ts';
 import { Interaction } from './game/Interaction.ts';
+import { Game } from './game/Game.ts';
 import { BreakParticles } from './render/BreakParticles.ts';
 import { PortTransport } from '@robmine/protocol';
 import { Renderer, type QualityLevel } from './render/Renderer.ts';
@@ -121,26 +122,38 @@ async function main(): Promise<void> {
   const hotbar = new Hotbar(
     registry,
     [
+      BLOCK.HainStamm,
+      BLOCK.Hainbretter,
+      BLOCK.Werkbank,
+      BLOCK.Glutfackel,
       BLOCK.Feldstein,
       BLOCK.Erde,
-      BLOCK.HainStamm,
-      BLOCK.HainBlaetter,
       BLOCK.Glas,
-      BLOCK.Glutfackel,
       BLOCK.Ambritlampe,
-      BLOCK.Kristall,
-      BLOCK.Sand,
+      ITEM.Glimmbeere,
     ],
     placeable,
   );
   const particles = new BreakParticles();
   renderer.scene.add(particles.mesh);
-  connection.onBlockUpdate = (updates) => {
-    for (const u of updates) chunks.applyBlockUpdate(u.x, u.y, u.z, u.block, registry);
-  };
-  const interaction = params.deterministic
+
+  // Spielzustand (Survival/Kreativ, Inventar, Leben, Schattenbrut) – nicht im Testmodus.
+  const game = params.deterministic
     ? null
-    : new Interaction(renderer, fly, chunks, registry, connection, hotbar, particles);
+    : new Game(registry, fly, chunks, renderer, hotbar, particles, welcome.worldSeed);
+  if (game) hotbar.setSource(game);
+  else document.querySelector('.hotbar')?.classList.add('hidden');
+
+  connection.onBlockUpdate = (updates) => {
+    for (const u of updates) {
+      const old = chunks.getBlock(u.x, u.y, u.z);
+      chunks.applyBlockUpdate(u.x, u.y, u.z, u.block, registry);
+      game?.onBlockConfirmed(u.x, u.y, u.z, old, u.block);
+    }
+  };
+  const interaction = game
+    ? new Interaction(renderer, fly, chunks, registry, connection, hotbar, particles, game)
+    : null;
 
   // Kollision/Wasser für den Laufmodus aus den geladenen Spalten.
   fly.isSolid = (x, y, z) => registry.solid[chunks.getBlock(x, y, z) & 0xfff] === 1;
@@ -149,6 +162,14 @@ async function main(): Promise<void> {
   // Startpose: Spawn oder Deterministik-Kamera. Ohne feste Kamera: sobald die Spawn-Spalte
   // geladen ist, auf den Boden setzen und in den Laufmodus wechseln.
   let spawned = !!params.cam;
+  let spawnPoint: [number, number, number] | null = null;
+  if (game) {
+    game.onRespawn = () => {
+      if (!spawnPoint) return;
+      fly.setPose(spawnPoint[0], spawnPoint[1], spawnPoint[2], fly.yaw, -0.1);
+      fly.setWalk(true);
+    };
+  }
   if (params.cam)
     fly.setPose(params.cam[0], params.cam[1], params.cam[2], params.cam[3], params.cam[4]);
   else fly.setPose(welcome.spawn[0], welcome.spawn[1], welcome.spawn[2], -0.6, -0.22);
@@ -217,14 +238,14 @@ async function main(): Promise<void> {
     if (!hint || hintHidden) return;
     if (mode === 'drag')
       hint.textContent =
-        'Maus gedrückt halten zum Umsehen · WASD laufen · Linksklick abbauen · Rechtsklick setzen · 1–9 / E Block · F fliegen';
+        'Maus gedrückt halten zum Umsehen · WASD laufen · Linksklick halten = abbauen · Rechtsklick setzen/essen · E Inventar & Herstellen · C Kreativ';
     else if (mode === 'touch')
       hint.textContent = 'Links wischen = laufen · rechts wischen = umsehen';
   };
   fly.onWalkChange = (walk) => {
     if (!hint || hintHidden) return;
     hint.textContent = walk
-      ? 'WASD laufen · Leertaste springen · Linksklick abbauen · Rechtsklick setzen · 1–9 / E Block · F fliegen'
+      ? 'WASD laufen · Leertaste springen · Linksklick halten = abbauen · Rechtsklick setzen/essen · E Inventar & Herstellen · C Kreativ'
       : 'WASD fliegen · Leertaste/Shift hoch/runter · Strg schnell · F laufen · F3 Statistik';
   };
 
@@ -243,12 +264,14 @@ async function main(): Promise<void> {
       if (h !== undefined && chunks.isLoadedAt(sx, sz)) {
         fly.setPose(fly.position.x, h + 1.01 + PLAYER.eyeHeight, fly.position.z, fly.yaw, -0.1);
         fly.setWalk(true);
+        spawnPoint = [fly.position.x, fly.position.y, fly.position.z];
         spawned = true;
       }
     }
     fly.update(dt);
     chunks.update(fly.position.x, fly.position.z);
-    interaction?.update();
+    interaction?.update(dt);
+    if (spawned) game?.update(dt);
     particles.update(dt);
     chunks.applyPending();
     renderer.render(elapsed);

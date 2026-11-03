@@ -11,6 +11,7 @@ import {
   type ChunkMesh,
   type Column,
   columnGet,
+  columnGetLight,
   columnKey,
   createPaddedChunk,
 } from '@robmine/core';
@@ -497,6 +498,13 @@ export class ChunkManager {
     const e = this.columns.get(columnKey(x >> CHUNK_BITS, z >> CHUNK_BITS));
     if (!e || !e.col) return 0;
     return columnGet(e.col, x & (CHUNK_SIZE - 1), y, z & (CHUNK_SIZE - 1));
+  }
+
+  /** Gepackter Lichtwert an Weltposition (voller Himmel, wenn nicht geladen). */
+  getLight(x: number, y: number, z: number): number {
+    const e = this.columns.get(columnKey(x >> CHUNK_BITS, z >> CHUNK_BITS));
+    if (!e || !e.col) return 0xf000;
+    return columnGetLight(e.col, x & (CHUNK_SIZE - 1), y, z & (CHUNK_SIZE - 1));
   }
 
   /** Ist die Spalte an dieser Weltposition geladen? */

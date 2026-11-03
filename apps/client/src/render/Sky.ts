@@ -81,8 +81,10 @@ export function computeSky(timeOfDay: number, out: SkyState): SkyState {
   out.fogColor.copy(out.horizon);
   out.ambientSky.copy(out.zenith).lerp(out.horizon, 0.5);
   out.ambientGround.setRGB(0.42, 0.36, 0.3).multiplyScalar(0.35 + 0.65 * daylight);
-  out.sunIntensity = 0.1 + 1.7 * daylight;
-  out.hemiIntensity = 0.25 + 0.6 * daylight;
+  // Nacht nie schwarz: Mondlicht (bläulich) + kräftigeres Umgebungslicht.
+  out.sunIntensity = 0.45 + 1.35 * daylight;
+  out.hemiIntensity = 0.55 + 0.3 * daylight;
+  if (daylight < 0.5) out.ambientSky.lerp(out.sunColor, 0.35 * (1 - daylight * 2));
   return out;
 }
 

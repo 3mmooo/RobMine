@@ -26,6 +26,8 @@ export const BLOCK = {
   Moorgras: 20,
   Asche: 21,
   Basalt: 22,
+  Hainbretter: 23,
+  Werkbank: 24,
 } as const;
 
 /** Material-Muster-IDs für den Fragment-Shader. */
@@ -238,6 +240,24 @@ export function createBlockRegistry(): BlockRegistry {
     colorSide: hexToRgb(PALETTE.ash),
     hardness: 0.4,
     pattern: PATTERN.Sand,
+  });
+  reg.register({
+    id: BLOCK.Hainbretter,
+    name: 'hainbretter',
+    label: 'Hainbretter',
+    colorSide: hexToRgb(PALETTE.planks),
+    hardness: 1,
+    pattern: PATTERN.Wood,
+  });
+  reg.register({
+    id: BLOCK.Werkbank,
+    name: 'werkbank',
+    label: 'Werkbank',
+    colorTop: hexToRgb(PALETTE.workbenchTop),
+    colorSide: hexToRgb(PALETTE.planks),
+    colorBottom: hexToRgb(PALETTE.planks),
+    hardness: 1.2,
+    pattern: PATTERN.Wood,
   });
   reg.register({
     id: BLOCK.Basalt,

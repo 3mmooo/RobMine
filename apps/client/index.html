@@ -199,6 +199,158 @@
         border-radius: 5px;
         flex: none;
       }
+      .picker-title {
+        grid-column: 1 / -1;
+        margin: 6px 2px 0;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        opacity: 0.8;
+      }
+      .picker-note {
+        grid-column: 1 / -1;
+        font-size: 13px;
+        opacity: 0.8;
+        padding: 4px 2px;
+      }
+      .picker-item.recipe {
+        grid-column: span 2;
+      }
+      .picker-item small {
+        display: block;
+        font-size: 11px;
+        opacity: 0.75;
+      }
+      .picker-item.disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .slot.empty .swatch {
+        opacity: 0.25;
+      }
+      .slot .count {
+        position: absolute;
+        right: 4px;
+        bottom: 1px;
+        font-size: 11px;
+        font-weight: 700;
+        text-shadow: 0 1px 2px #000;
+      }
+      .hidden.hotbar,
+      .vitals.hidden {
+        display: none;
+      }
+      .vitals {
+        position: fixed;
+        left: 50%;
+        bottom: 128px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 28px;
+        font-size: 17px;
+        line-height: 1;
+        pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      }
+      .vital span {
+        margin: 0 1px;
+      }
+      .vital.health .full {
+        color: #ff5a6a;
+      }
+      .vital.health .half {
+        color: #ff9aa5;
+      }
+      .vital.hunger .full {
+        color: #ffb347;
+      }
+      .vital.hunger .half {
+        color: #ffd699;
+      }
+      .vital .empty {
+        color: rgba(255, 255, 255, 0.25);
+      }
+      .mode-badge {
+        position: fixed;
+        right: 12px;
+        top: 12px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: var(--glass);
+        font-size: 12px;
+        pointer-events: none;
+      }
+      .break-progress {
+        position: fixed;
+        left: 50%;
+        top: calc(50% + 18px);
+        width: 60px;
+        height: 5px;
+        margin-left: -30px;
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .break-progress.hidden {
+        display: none;
+      }
+      .break-progress .fill {
+        height: 100%;
+        width: 0;
+        background: var(--accent);
+      }
+      .hurt-flash {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(circle, transparent 45%, rgba(220, 30, 50, 0.55));
+        opacity: 0;
+      }
+      .hurt-flash.on {
+        animation: hurt 0.45s ease-out;
+      }
+      @keyframes hurt {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0;
+        }
+      }
+      .death {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(40, 8, 20, 0.55);
+      }
+      .death.hidden {
+        display: none;
+      }
+      .death-card {
+        padding: 24px 32px;
+        border-radius: 16px;
+        background: var(--glass);
+        backdrop-filter: blur(8px);
+        text-align: center;
+      }
+      .death-card h2 {
+        margin: 0 0 6px;
+      }
+      .death-card button {
+        margin-top: 12px;
+        padding: 10px 20px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #1b1f3b;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -207,8 +359,8 @@
       <div id="debug" class="debug hidden"></div>
       <div class="crosshair"></div>
       <div id="hint" class="hud-hint">
-        Klicken zum Umsehen · WASD laufen · Leertaste springen · Linksklick abbauen · Rechtsklick
-        setzen · 1–9 / E Block · F fliegen · F3 Statistik
+        Klicken zum Umsehen · WASD laufen · Linksklick halten = abbauen · Rechtsklick setzen/essen ·
+        E Inventar &amp; Herstellen · C Kreativ · F3 Statistik
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

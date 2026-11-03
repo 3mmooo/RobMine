@@ -29,6 +29,8 @@ export class FlyCamera {
   isFluid: BlockQuery | null = null;
   readonly player = createPlayerState(0, 0, 0);
   onWalkChange: ((walk: boolean) => void) | null = null;
+  /** Darf mit F geflogen werden? (Survival: nein) */
+  canFly = true;
   private mode: LookMode = 'none';
   private interacted = false;
   private readonly keys = new Set<string>();
@@ -121,7 +123,7 @@ export class FlyCamera {
     window.addEventListener('keydown', (e) => {
       if (!this.enabled) return;
       if (e.code === 'Space') e.preventDefault();
-      if (e.code === 'KeyF' && !e.repeat) this.setWalk(!this.walk);
+      if (e.code === 'KeyF' && !e.repeat && (this.canFly || !this.walk)) this.setWalk(!this.walk);
       this.keys.add(e.code);
       this.markInteracted();
     });
@@ -131,6 +133,16 @@ export class FlyCamera {
 
   get isLocked(): boolean {
     return this.mode === 'locked';
+  }
+
+  /** Rennt der Spieler gerade (Strg + Bewegung im Laufmodus)? */
+  get sprinting(): boolean {
+    const moving =
+      this.keys.has('KeyW') ||
+      this.keys.has('KeyA') ||
+      this.keys.has('KeyS') ||
+      this.keys.has('KeyD');
+    return this.walk && moving && (this.keys.has('ControlLeft') || this.keys.has('ControlRight'));
   }
 
   get lookMode(): LookMode {

@@ -76,7 +76,7 @@ while (Date.now() - t0 < waitMs) {
     break;
   }
 }
-await page.waitForTimeout(800);
+await page.waitForTimeout(Number(arg('settle', '800')));
 mkdirSync(dirname(out), { recursive: true });
 await page.screenshot({ path: out });
 console.log(`${ready ? 'bereit' : 'NICHT bereit (Timeout)'} – Screenshot: ${out}`);
