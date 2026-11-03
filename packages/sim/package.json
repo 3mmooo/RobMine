@@ -1,0 +1,20 @@
+{
+  "name": "@robmine/sim",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Der Instanz-Kern: Welt, Spieler, Entities, Regeln – läuft identisch im Browser-Worker (Solo) und auf dem Server.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@robmine/content": "workspace:*",
+    "@robmine/core": "workspace:*",
+    "@robmine/protocol": "workspace:*"
+  }
+}

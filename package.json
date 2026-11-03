@@ -1,0 +1,35 @@
+{
+  "name": "robmine",
+  "version": "0.0.1",
+  "private": true,
+  "description": "RobMine (Arbeitstitel) – stilisierte Voxelwelt im Browser: überleben, bauen, eigene Minispiele erschaffen.",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @robmine/client dev",
+    "build": "pnpm --filter @robmine/client build",
+    "preview": "pnpm --filter @robmine/client preview",
+    "typecheck": "pnpm -r --parallel run typecheck",
+    "lint": "oxlint packages apps tools e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "node tools/src/bench.ts",
+    "preview:worldgen": "node tools/src/worldgen-preview.ts",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "oxlint": "1.90.0",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": []
+  }
+}

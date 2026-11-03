@@ -1,0 +1,15 @@
+{
+  "name": "@robmine/e2e",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "End-to-End-Tests im echten Chromium (Playwright): Smoke, Screenshots, Budgets, Leak-Check.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.5"
+  }
+}

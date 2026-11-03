@@ -1,0 +1,25 @@
+# Abhängigkeiten
+node_modules/
+
+# Build-Artefakte
+dist/
+*.tsbuildinfo
+
+# Test-/Werkzeug-Ausgaben
+.vitest/
+e2e/test-results/
+e2e/playwright-report/
+e2e/screenshots/*.png
+!e2e/screenshots/.gitkeep
+tools/out/
+
+# Betriebssystem / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Umgebungen
+.env
+.env.*

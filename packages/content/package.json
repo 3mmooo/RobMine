@@ -1,0 +1,18 @@
+{
+  "name": "@robmine/content",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Spielinhalte als Daten: Blöcke, Palette, Namens-Bibel, später Rezepte, Kreaturen, Biome, Kosmetik.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@robmine/core": "workspace:*"
+  }
+}

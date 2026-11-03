@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Abhängigkeiten installieren
+        run: pnpm install --frozen-lockfile
+
+      - name: Typen prüfen
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format prüfen
+        run: pnpm format:check
+
+      - name: Unit-Tests
+        run: pnpm test
+
+      - name: Bench (Budgets)
+        run: pnpm bench
+
+      - name: Client bauen
+        run: pnpm build
+
+      - name: Playwright-Browser installieren
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E (Chromium, SwiftShader)
+        run: pnpm e2e
+
+      - name: Screenshots als Artefakt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: |
+            e2e/screenshots/*.png
+            e2e/test-results/**
+          if-no-files-found: ignore

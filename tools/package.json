@@ -1,0 +1,21 @@
+{
+  "name": "@robmine/tools",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Entwickler-Werkzeuge: Bench (Weltgen/Meshing-Budgets), Weltgen-Vorschau (PNG), später Bot-Lasttest.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node src/bench.ts",
+    "preview:worldgen": "node src/worldgen-preview.ts",
+    "snapshot": "node src/snapshot.ts"
+  },
+  "dependencies": {
+    "@robmine/content": "workspace:*",
+    "@robmine/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.5"
+  }
+}

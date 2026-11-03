@@ -1,0 +1,8 @@
+node_modules
+dist
+.vitest
+pnpm-lock.yaml
+e2e/screenshots
+e2e/test-results
+e2e/playwright-report
+tools/out
