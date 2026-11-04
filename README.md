@@ -29,6 +29,7 @@ Dann `http://127.0.0.1:5173` öffnen, in das Fenster klicken und fliegen: **WASD
 | `det`     | `1` = deterministisch: feste Zeit, keine Eingabe (für Tests/Screenshots) | `?det=1`                    |
 | `cam`     | Kamera `x,y,z,yaw,pitch`                                                 | `?cam=12,92,20,-0.65,-0.28` |
 | `debug`   | `1` = Overlay sofort sichtbar                                            | `?debug=1`                  |
+| `world`   | `hafen` (Laternenhafen) oder `welt` (Dämmerlande)                        | `?world=hafen`              |
 
 ### Mehrspieler
 
@@ -40,7 +41,7 @@ pnpm build
 STATIC_DIR=apps/client/dist pnpm server
 ```
 
-Dann `http://<IP>:8080` öffnen – alle mit diesem Link spielen in derselben Welt (T = Chat). Online-Hosting mit Docker: [`docs/HOSTING.md`](docs/HOSTING.md).
+Dann `http://<IP>:8080` öffnen – alle mit diesem Link landen im **Laternenhafen** (Treffpunkt). Durchs Portal im Norden geht es in die Dämmerlande, **H** führt zurück. **M** Avatar, **K** Konto & Freunde (ohne E-Mail, mit Wiederherstellungscode), **T** Chat (unter 13 und Gäste: sichere Satzbausteine), **F5** Ansicht. Online-Hosting mit Docker: [`docs/HOSTING.md`](docs/HOSTING.md).
 
 ### Online-Version (ohne Installation)
 

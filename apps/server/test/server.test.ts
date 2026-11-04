@@ -49,6 +49,7 @@ const hello = (name: string): Message => ({
   token: '',
   clientBuild: 'test',
   name,
+  avatar: '000000',
 });
 
 describe('Spielserver (WebSocket, zwei Spieler)', () => {
@@ -63,6 +64,7 @@ describe('Spielserver (WebSocket, zwei Spieler)', () => {
       host: '127.0.0.1',
       seed: 42,
       dataDir: dir,
+      guestSafeChat: false,
       log: () => {},
     });
     url = `ws://127.0.0.1:${server.port}/ws`;

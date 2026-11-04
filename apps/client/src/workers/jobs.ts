@@ -15,6 +15,8 @@ export interface ColumnPayload {
 }
 
 export interface GenRequest {
+  /** Welt-ID ('welt' | 'hafen'). */
+  world: string;
   seed: number;
   cx: number;
   cz: number;

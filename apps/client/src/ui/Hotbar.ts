@@ -40,6 +40,7 @@ export class Hotbar {
     overlay.appendChild(this.picker);
 
     window.addEventListener('keydown', (e) => {
+      if (this.el.classList.contains('hidden')) return; // z. B. im Laternenhafen
       if (e.code.startsWith('Digit')) {
         const n = Number(e.code.slice(5));
         if (n >= 1 && n <= 9) this.select(n - 1);

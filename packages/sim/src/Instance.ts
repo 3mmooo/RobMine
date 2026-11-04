@@ -8,7 +8,7 @@ import {
   columnSet,
   decodeChunk,
   encodeChunk,
-  type WorldGenerator,
+  type ColumnGenerator,
   WORLD_HEIGHT,
   WORLDGEN_VERSION,
 } from '@robmine/core';
@@ -22,7 +22,9 @@ import {
   PROTOCOL_VERSION,
   type ServerMessage,
   type Transport,
+  WelcomeFlag,
 } from '@robmine/protocol';
+import { isSafePhrase, normalizeAvatar } from '@robmine/content';
 import type { ColumnStorage } from './ColumnStorage.ts';
 import { filterChat, sanitizeName } from './chat.ts';
 import { World } from './World.ts';
@@ -34,7 +36,19 @@ export interface InstanceOptions {
   mode?: number;
   timeOfDay?: number;
   /** Erzeugt Spalten, die zum ersten Mal verändert werden. Ohne Generator: keine Blockaktionen. */
-  generator?: WorldGenerator;
+  generator?: ColumnGenerator;
+  /** Welt-ID für Welcome ('welt' | 'hafen'). */
+  world?: string;
+  /** false = niemand darf bauen/abbauen (Laternenhafen). */
+  buildable?: boolean;
+  /** Konto-Token prüfen; null = ungültig (dann Gast). */
+  authenticate?: (token: string) => AuthInfo | null;
+  /** Ist der Name einem Konto vorbehalten? Gäste bekommen dann einen anderen. */
+  isReservedName?: (name: string) => boolean;
+  /** Gäste nur mit sicherem Chat (Satzbausteine). Standard: true. */
+  guestSafeChat?: boolean;
+  /** Meldung bei Ein-/Austritt angemeldeter Spieler (Freunde-online-Anzeige). */
+  onPresence?: (accountId: string, online: boolean) => void;
   /** Persistenz veränderter Spalten. */
   storage?: ColumnStorage;
   /** Menge der setzbaren Blocktypen (Validierung); undefined = alle. */
@@ -45,6 +59,12 @@ export interface InstanceOptions {
   saveDelayMs?: number;
   /** Maximale Spielerzahl. */
   maxPlayers?: number;
+}
+
+export interface AuthInfo {
+  accountId: string;
+  name: string;
+  safeChat: boolean;
 }
 
 type SessionState = 'awaitingHello' | 'active' | 'closed';
@@ -78,6 +98,9 @@ class RateLimit {
 export class Session {
   readonly id: number;
   name = '';
+  avatar = '000000';
+  accountId: string | null = null;
+  safeChat = false;
   state: SessionState = 'awaitingHello';
   x = 0;
   y = 0;
@@ -93,6 +116,7 @@ export class Session {
     move: new RateLimit(40, 60),
     block: new RateLimit(20, 30),
     chat: new RateLimit(1, 4),
+    avatar: new RateLimit(2, 5),
     chunk: new RateLimit(400, 800),
   };
   private violations = 0;
@@ -171,13 +195,16 @@ export class Instance {
   readonly world: World;
   readonly spawn: [number, number, number];
   readonly mode: number;
+  readonly worldId: string;
+  readonly buildable: boolean;
   timeOfDay: number;
   tick = 0;
   readonly sessions = new Set<Session>();
   /** Blocktypen, die beim Setzen ersetzt werden dürfen (z. B. Wasser). */
   readonly replaceable = new Set<number>();
   private nextPlayerId = 1;
-  private readonly generator: WorldGenerator | null;
+  private readonly generator: ColumnGenerator | null;
+  private readonly opts: InstanceOptions;
   private readonly storage: ColumnStorage | null;
   private readonly placeable: ReadonlySet<number> | null;
   private readonly unbreakable: ReadonlySet<number>;
@@ -192,7 +219,10 @@ export class Instance {
   constructor(opts: InstanceOptions) {
     this.world = new World(opts.seed);
     this.spawn = opts.spawn;
+    this.opts = opts;
     this.mode = opts.mode ?? 0;
+    this.worldId = opts.world ?? 'welt';
+    this.buildable = opts.buildable ?? true;
     this.timeOfDay = opts.timeOfDay ?? 600;
     this.generator = opts.generator ?? null;
     this.storage = opts.storage ?? null;
@@ -219,6 +249,7 @@ export class Instance {
   removeSession(s: Session): void {
     if (!this.sessions.delete(s)) return;
     if (s.state !== 'closed') s.state = 'closed';
+    if (s.accountId) this.opts.onPresence?.(s.accountId, false);
     if (s.name) {
       this.broadcast({ op: 'PlayerLeave', id: s.id }, s);
       this.broadcast(
@@ -267,7 +298,18 @@ export class Instance {
         if (this.playerCount >= this.maxPlayers)
           return s.kick('Server voll – versuch es gleich noch einmal');
         s.state = 'active';
-        s.name = sanitizeName(m.name, s.id);
+        const auth = m.token ? (this.opts.authenticate?.(m.token) ?? null) : null;
+        if (auth) {
+          s.accountId = auth.accountId;
+          s.name = auth.name;
+          s.safeChat = auth.safeChat;
+          this.opts.onPresence?.(auth.accountId, true);
+        } else {
+          s.name = sanitizeName(m.name, s.id);
+          if (this.opts.isReservedName?.(s.name)) s.name = `Gast${s.id}`;
+          s.safeChat = this.opts.guestSafeChat ?? true;
+        }
+        s.avatar = normalizeAvatar(m.avatar);
         s.send({
           op: 'Welcome',
           playerId: s.id,
@@ -276,12 +318,19 @@ export class Instance {
           spawn: this.spawn,
           timeOfDay: Math.floor(this.timeOfDay) % 1440,
           mode: this.mode,
+          world: this.worldId,
+          flags:
+            (s.safeChat ? WelcomeFlag.SafeChat : 0) |
+            (auth ? WelcomeFlag.LoggedIn : 0) |
+            (this.buildable && this.generator ? WelcomeFlag.CanBuild : 0),
+          name: s.name,
         });
         // Wer ist schon da?
         for (const o of this.sessions) {
-          if (o !== s && o.state === 'active') s.send({ op: 'PlayerJoin', id: o.id, name: o.name });
+          if (o !== s && o.state === 'active')
+            s.send({ op: 'PlayerJoin', id: o.id, name: o.name, avatar: o.avatar });
         }
-        this.broadcast({ op: 'PlayerJoin', id: s.id, name: s.name }, s);
+        this.broadcast({ op: 'PlayerJoin', id: s.id, name: s.name, avatar: s.avatar }, s);
         if (this.sessions.size > 1)
           this.broadcast(
             { op: 'ChatMessage', from: 0, name: 'Laternenhafen', text: `${s.name} ist da.` },
@@ -310,8 +359,15 @@ export class Instance {
         s.hasPosition = true;
         break;
       }
+      case 'SetAvatar': {
+        if (!s.limits.avatar.take()) return s.violation();
+        s.avatar = normalizeAvatar(m.avatar);
+        this.broadcast({ op: 'PlayerJoin', id: s.id, name: s.name, avatar: s.avatar }, s);
+        break;
+      }
       case 'BlockAction': {
         if (!s.limits.block.take()) return s.violation();
+        if (!this.buildable) return;
         if (s.hasPosition) {
           const d = Math.hypot(m.x + 0.5 - s.x, m.y + 0.5 - (s.y + 1.6), m.z + 0.5 - s.z);
           if (d > REACH) return;
@@ -329,11 +385,23 @@ export class Instance {
           });
           return;
         }
-        const { text } = filterChat(m.text);
-        if (!text) return;
+        let text: string;
+        if (s.safeChat) {
+          // Sicherer Chat: nur exakte Satzbausteine
+          if (!isSafePhrase(m.text)) return;
+          text = m.text;
+        } else {
+          text = filterChat(m.text).text;
+          if (!text) return;
+        }
         const msg: ServerMessage = { op: 'ChatMessage', from: s.id, name: s.name, text };
-        s.send(msg);
-        this.broadcast(msg, s);
+        const safe = isSafePhrase(text);
+        for (const o of this.sessions) {
+          if (o.state !== 'active') continue;
+          // Wer sicheren Chat hat, empfängt auch nur Satzbausteine.
+          if (o.safeChat && !safe) continue;
+          o.send(msg);
+        }
         break;
       }
       default:

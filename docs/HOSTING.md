@@ -44,15 +44,18 @@ Danach ist das Spiel unter `https://spiel.deine-domain.de` erreichbar.
 
 ## Einstellungen (Umgebungsvariablen)
 
-| Variable          | Standard | Bedeutung                                                   |
-| ----------------- | -------- | ----------------------------------------------------------- |
-| `PORT`            | 8080     | HTTP/WebSocket-Port                                         |
-| `SEED`            | 42       | Welt-Seed                                                   |
-| `DATA_DIR`        | `/data`  | veränderte Spalten (Backups: diesen Ordner sichern)         |
-| `MAX_PLAYERS`     | 16       | Spielerlimit                                                |
-| `ALLOWED_ORIGINS` | leer     | erlaubte Herkunft der Webseite (kommagetrennt), leer = alle |
+| Variable          | Standard | Bedeutung                                                              |
+| ----------------- | -------- | ---------------------------------------------------------------------- |
+| `PORT`            | 8080     | HTTP/WebSocket-Port                                                    |
+| `SEED`            | 42       | Welt-Seed                                                              |
+| `DATA_DIR`        | `/data`  | veränderte Spalten + `accounts.json` (Backups: diesen Ordner sichern)  |
+| `MAX_PLAYERS`     | 16       | Spielerlimit                                                           |
+| `ALLOWED_ORIGINS` | leer     | erlaubte Herkunft der Webseite (kommagetrennt), leer = alle            |
+| `GUEST_FREE_CHAT` | leer     | `1` = Gäste dürfen frei (gefiltert) schreiben; sonst nur Satzbausteine |
 
-Gesundheitscheck: `GET /healthz` → `{ ok, players, tick }`.
+Gesundheitscheck: `GET /healthz` → `{ ok, players, hub, tick }`.
+
+Welten: `/ws/hafen` (Laternenhafen, nicht bebaubar) und `/ws/welt` bzw. `/ws` (Dämmerlande). Konto-API: `POST /api/register|login|recover|friends|friends/remove|logout`, `GET /api/me` (Bearer-Token). Unter HTTPS laufen Passwörter verschlüsselt – Caddy davor setzen.
 
 ## Mit einer anderen Client-Adresse verbinden
 

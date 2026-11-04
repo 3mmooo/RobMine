@@ -41,8 +41,8 @@ export class Connection {
   onBlockUpdate: ((updates: BlockUpdateMsg['updates']) => void) | null = null;
   onPlayers: ((players: PlayerSnapshot[]) => void) | null = null;
   /** Namen aller verbundenen Mitspieler (auch die, die vor dem Registrieren der Handler kamen). */
-  readonly roster = new Map<number, string>();
-  onPlayerJoin: ((id: number, name: string) => void) | null = null;
+  readonly roster = new Map<number, { name: string; avatar: string }>();
+  onPlayerJoin: ((id: number, name: string, avatar: string) => void) | null = null;
   onPlayerLeave: ((id: number) => void) | null = null;
   onChat: ((msg: ChatMessageMsg) => void) | null = null;
 
@@ -52,11 +52,11 @@ export class Connection {
     transport.onClose(() => this.fail(new Error('Verbindung geschlossen')));
   }
 
-  hello(name: string, clientBuild = 'dev', token = ''): Promise<WelcomeMsg> {
+  hello(name: string, avatar: string, clientBuild = 'dev', token = ''): Promise<WelcomeMsg> {
     if (this.closed) return Promise.reject(new Error(this.closeReason ?? 'Verbindung geschlossen'));
     return new Promise<WelcomeMsg>((resolve, reject) => {
       this.welcomeWaiter = { resolve, reject };
-      this.send({ op: 'Hello', protoVer: PROTOCOL_VERSION, token, clientBuild, name });
+      this.send({ op: 'Hello', protoVer: PROTOCOL_VERSION, token, clientBuild, name, avatar });
     });
   }
 
@@ -86,6 +86,10 @@ export class Connection {
   /** Eigene Position (Fußpunkt) und Blickrichtung. */
   sendMove(x: number, y: number, z: number, yaw: number, pitch: number): void {
     this.send({ op: 'PlayerMove', x, y, z, yaw, pitch });
+  }
+
+  setAvatar(avatar: string): void {
+    this.send({ op: 'SetAvatar', avatar });
   }
 
   sendChat(text: string): void {
@@ -159,8 +163,8 @@ export class Connection {
         this.onPlayers?.(m.players);
         break;
       case 'PlayerJoin':
-        this.roster.set(m.id, m.name);
-        this.onPlayerJoin?.(m.id, m.name);
+        this.roster.set(m.id, { name: m.name, avatar: m.avatar });
+        this.onPlayerJoin?.(m.id, m.name, m.avatar);
         break;
       case 'PlayerLeave':
         this.roster.delete(m.id);

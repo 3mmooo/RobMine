@@ -44,6 +44,7 @@ const hello = (): Message => ({
   token: '',
   clientBuild: 'test',
   name: 'Tester',
+  avatar: '000000',
 });
 
 describe('LocalInstance', () => {
@@ -61,6 +62,9 @@ describe('LocalInstance', () => {
       spawn: [8, 80, 8],
       timeOfDay: 600,
       mode: 0,
+      world: 'welt',
+      flags: 1,
+      name: 'Tester',
     });
     expect(inst.sessionState).toBe('active');
     inst.close();
@@ -71,7 +75,9 @@ describe('LocalInstance', () => {
     const inst = new LocalInstance(server, { seed: 1, spawn: [0, 0, 0] });
     const { next, closed } = collect(client);
     client.send(
-      encodeFrame(0, [{ op: 'Hello', protoVer: 99, token: '', clientBuild: 'test', name: 'X' }]),
+      encodeFrame(0, [
+        { op: 'Hello', protoVer: 99, token: '', clientBuild: 'test', name: 'X', avatar: '' },
+      ]),
     );
     const msgs = await next();
     expect(msgs[0]!.op).toBe('Kick');

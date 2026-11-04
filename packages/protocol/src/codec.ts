@@ -12,7 +12,17 @@ export function encodeMessage(w: ByteWriter, m: Message): void {
         const at = w.length;
         w.u32(0);
         const start = w.length;
-        w.u16(m.protoVer).str(m.token).str(m.clientBuild).str(m.name);
+        w.u16(m.protoVer).str(m.token).str(m.clientBuild).str(m.name).str(m.avatar);
+        w.patchU32(at, w.length - start);
+      }
+      break;
+    case 'SetAvatar':
+      w.u8(Op.SetAvatar);
+      {
+        const at = w.length;
+        w.u32(0);
+        const start = w.length;
+        w.str(m.avatar);
         w.patchU32(at, w.length - start);
       }
       break;
@@ -44,7 +54,7 @@ export function encodeMessage(w: ByteWriter, m: Message): void {
         const at = w.length;
         w.u32(0);
         const start = w.length;
-        w.u16(m.id).str(m.name);
+        w.u16(m.id).str(m.name).str(m.avatar);
         w.patchU32(at, w.length - start);
       }
       break;
@@ -91,7 +101,10 @@ export function encodeMessage(w: ByteWriter, m: Message): void {
           .f64(m.spawn[1])
           .f64(m.spawn[2])
           .u16(m.timeOfDay)
-          .u8(m.mode);
+          .u8(m.mode)
+          .str(m.world)
+          .u8(m.flags)
+          .str(m.name);
         w.patchU32(at, w.length - start);
       }
       break;
@@ -139,7 +152,11 @@ export function decodeMessage(r: ByteReader): Message {
         token: r.str(),
         clientBuild: r.str(),
         name: r.str(),
+        avatar: r.str(),
       };
+      break;
+    case Op.SetAvatar:
+      msg = { op: 'SetAvatar', avatar: r.str() };
       break;
     case Op.Ping:
       msg = { op: 'Ping', clientTime: r.u32() };
@@ -166,7 +183,7 @@ export function decodeMessage(r: ByteReader): Message {
       break;
     }
     case Op.PlayerJoin:
-      msg = { op: 'PlayerJoin', id: r.u16(), name: r.str() };
+      msg = { op: 'PlayerJoin', id: r.u16(), name: r.str(), avatar: r.str() };
       break;
     case Op.PlayerLeave:
       msg = { op: 'PlayerLeave', id: r.u16() };
@@ -197,6 +214,9 @@ export function decodeMessage(r: ByteReader): Message {
         spawn: [r.f64(), r.f64(), r.f64()],
         timeOfDay: r.u16(),
         mode: r.u8(),
+        world: r.str(),
+        flags: r.u8(),
+        name: r.str(),
       };
       break;
     case Op.ChunkColumn: {

@@ -38,6 +38,7 @@ const hello = (): Message => ({
   token: '',
   clientBuild: 't',
   name: 'Tester',
+  avatar: '000000',
 });
 
 describe('Blockaktionen (autoritativ) + Persistenz', () => {

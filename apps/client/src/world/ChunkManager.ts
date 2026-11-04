@@ -130,6 +130,8 @@ export class ChunkManager {
   private readonly genPool: WorkerPool<GenRequest, GenResponse>;
   private readonly meshPool: WorkerPool<MeshRequest, MeshResponse>;
   readonly seed: number;
+  /** Welt-ID für die Gen-Worker ('welt' | 'hafen'). */
+  world = 'welt';
   radius: number;
 
   constructor(
@@ -207,6 +209,7 @@ export class ChunkManager {
       const transfer = msg.chunks.map((c) => c.blob.buffer as ArrayBuffer);
       const res = await this.genPool.run(
         {
+          world: this.world,
           seed: this.seed,
           cx: entry.cx,
           cz: entry.cz,

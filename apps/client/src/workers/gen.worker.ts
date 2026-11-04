@@ -1,15 +1,16 @@
 import {
+  type ColumnGenerator,
   decodeChunk,
   initColumnLight,
   recomputeColumnHeights,
-  WorldGenerator,
 } from '@robmine/core';
-import { createBlockRegistry, WORLD_BLOCKS } from '@robmine/content';
+import { createBlockRegistry, createGenerator, parseWorldId } from '@robmine/content';
 import type { ColumnPayload, GenRequest, GenResponse } from './jobs.ts';
 import { serveWorker } from './rpc.ts';
 
 const registry = createBlockRegistry();
-let generator: WorldGenerator | null = null;
+let generator: ColumnGenerator | null = null;
+let generatorWorld = '';
 
 /**
  * Erzeugt eine Spalte aus dem Seed, ersetzt veränderte Chunks durch die Server-Blobs
@@ -17,8 +18,10 @@ let generator: WorldGenerator | null = null;
  * packt nur noch Typed Arrays um.
  */
 serveWorker<GenRequest, GenResponse>((req) => {
-  if (!generator || generator.seed !== req.seed >>> 0)
-    generator = new WorldGenerator(req.seed, WORLD_BLOCKS);
+  if (!generator || generator.seed !== req.seed >>> 0 || generatorWorld !== req.world) {
+    generator = createGenerator(parseWorldId(req.world) ?? 'welt', req.seed);
+    generatorWorld = req.world;
+  }
   const t0 = performance.now();
   const col = generator.generateColumn(req.cx, req.cz);
   if (req.chunks.length > 0) {

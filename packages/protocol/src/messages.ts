@@ -4,13 +4,14 @@
  * Rahmen: u8 ver · u16 tick · u8 n · n × ( u8 op · u32 len · payload ), Little Endian.
  * Opcodes < 0x80 Client → Server, ≥ 0x80 Server → Client.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const Op = {
   Hello: 0x01,
   PlayerMove: 0x02,
   BlockAction: 0x03,
   Chat: 0x05,
+  SetAvatar: 0x06,
   Ping: 0x07,
   ChunkRequest: 0x10,
   Welcome: 0x80,
@@ -47,8 +48,16 @@ export interface HelloMsg {
   protoVer: number;
   token: string;
   clientBuild: string;
-  /** Anzeigename (wird vom Server bereinigt). */
+  /** Anzeigename (wird vom Server bereinigt; mit gültigem Konto-Token zählt der Kontoname). */
   name: string;
+  /** Avatar-Code (siehe @robmine/content avatar.ts). */
+  avatar: string;
+}
+
+/** Avatar geändert (C→S); der Server verteilt ihn als PlayerJoin neu. */
+export interface SetAvatarMsg {
+  op: 'SetAvatar';
+  avatar: string;
 }
 
 /** Eigene Position/Blickrichtung (C→S, ~15 Hz). y = Fußpunkt. */
@@ -85,6 +94,7 @@ export interface PlayerJoinMsg {
   op: 'PlayerJoin';
   id: number;
   name: string;
+  avatar: string;
 }
 
 export interface PlayerLeaveMsg {
@@ -121,7 +131,15 @@ export interface WelcomeMsg {
   timeOfDay: number;
   /** 0 Solo, 1 Lagerfeuer, 2 Scherbe, 3 Hub */
   mode: number;
+  /** Welt-ID: 'welt' (Dämmerlande) oder 'hafen' (Laternenhafen). */
+  world: string;
+  /** Bit 0 Sicherer Chat (nur Satzbausteine), Bit 1 angemeldet, Bit 2 Bauen erlaubt. */
+  flags: number;
+  /** Endgültiger Anzeigename. */
+  name: string;
 }
+
+export const WelcomeFlag = { SafeChat: 1, LoggedIn: 2, CanBuild: 4 } as const;
 
 export interface ChunkColumnMsg {
   op: 'ChunkColumn';
@@ -144,7 +162,7 @@ export interface KickMsg {
 }
 
 export type ClientMessage =
-  HelloMsg | PingMsg | ChunkRequestMsg | BlockActionMsg | PlayerMoveMsg | ChatMsg;
+  HelloMsg | PingMsg | ChunkRequestMsg | BlockActionMsg | PlayerMoveMsg | ChatMsg | SetAvatarMsg;
 export type ServerMessage =
   | WelcomeMsg
   | ChunkColumnMsg

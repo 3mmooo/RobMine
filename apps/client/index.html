@@ -407,6 +407,135 @@
         font-weight: 700;
         cursor: pointer;
       }
+      .side-panel {
+        position: fixed;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: min(340px, calc(100vw - 32px));
+        max-height: 80vh;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 14px;
+        border-radius: 14px;
+        background: var(--glass);
+        backdrop-filter: blur(8px);
+        color: var(--paper);
+        pointer-events: auto;
+        font-size: 14px;
+      }
+      .side-panel.hidden,
+      .chat-phrases.hidden {
+        display: none;
+      }
+      .side-panel button,
+      .chat-phrases button {
+        border: 0;
+        border-radius: 8px;
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--paper);
+        font: inherit;
+        cursor: pointer;
+      }
+      .side-panel button:hover,
+      .chat-phrases button:hover,
+      .panel-tabs button.active {
+        background: rgba(255, 179, 71, 0.4);
+      }
+      .panel-title {
+        font-weight: 700;
+        font-size: 16px;
+      }
+      .panel-row {
+        display: grid;
+        grid-template-columns: 90px 32px 1fr 32px;
+        align-items: center;
+        gap: 6px;
+      }
+      .panel-value {
+        text-align: center;
+      }
+      .panel-value .swatch {
+        display: inline-block;
+        width: 48px;
+        height: 18px;
+        border-radius: 5px;
+        vertical-align: middle;
+      }
+      .panel-note {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+      .panel-message {
+        font-size: 13px;
+        color: #ffd28a;
+      }
+      .panel-tabs {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .panel-input {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: rgba(0, 0, 0, 0.35);
+        color: var(--paper);
+        font: inherit;
+      }
+      .panel-button.quiet {
+        background: transparent;
+        opacity: 0.7;
+      }
+      .recovery-code,
+      .friend-code b {
+        font-family: ui-monospace, monospace;
+        letter-spacing: 0.05em;
+      }
+      .recovery-code {
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.35);
+        line-height: 1.6;
+      }
+      .friend-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+        opacity: 0.9;
+      }
+      .friend {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 6px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .friend span {
+        flex: 1;
+      }
+      .friend.online small {
+        color: #8ff0a4;
+      }
+      .chat-phrases {
+        position: fixed;
+        left: 16px;
+        bottom: 96px;
+        width: min(420px, calc(100vw - 32px));
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px;
+        border-radius: 12px;
+        background: var(--glass);
+        backdrop-filter: blur(8px);
+        pointer-events: auto;
+      }
     </style>
   </head>
   <body>

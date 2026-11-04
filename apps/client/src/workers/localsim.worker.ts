@@ -1,5 +1,11 @@
-import { AIR, RenderPass, WorldGenerator } from '@robmine/core';
-import { BLOCK, createBlockRegistry, WORLD_BLOCKS } from '@robmine/content';
+import { AIR, RenderPass } from '@robmine/core';
+import {
+  BLOCK,
+  createBlockRegistry,
+  createGenerator,
+  type WorldId,
+  worldSpawn,
+} from '@robmine/content';
 import { PortTransport } from '@robmine/protocol';
 import { LocalInstance } from '@robmine/sim';
 import { IndexedDbColumnStorage } from '../storage/IndexedDbColumnStorage.ts';
@@ -12,7 +18,7 @@ import { IndexedDbColumnStorage } from '../storage/IndexedDbColumnStorage.ts';
 export interface LocalSimInit {
   port: MessagePort;
   seed: number;
-  spawn: [number, number, number];
+  world: WorldId;
   timeOfDay: number;
 }
 
@@ -30,15 +36,18 @@ ctx.onmessage = (ev: MessageEvent<LocalSimInit>) => {
     if (registry.pass[def.id] === RenderPass.Fluid) continue;
     placeable.add(def.id);
   }
+  const hub = init.world === 'hafen';
   instance = new LocalInstance(new PortTransport(init.port), {
     seed: init.seed,
-    spawn: init.spawn,
+    spawn: worldSpawn(init.world),
     timeOfDay: init.timeOfDay,
-    mode: 0,
-    generator: new WorldGenerator(init.seed, WORLD_BLOCKS),
-    storage: new IndexedDbColumnStorage(`robmine-world-${init.seed >>> 0}`),
+    mode: hub ? 3 : 0,
+    world: init.world,
+    buildable: !hub,
+    generator: createGenerator(init.world, init.seed),
+    ...(hub ? {} : { storage: new IndexedDbColumnStorage(`robmine-world-${init.seed >>> 0}`) }),
     placeable,
-    unbreakable: new Set([BLOCK.Urgestein]),
+    unbreakable: new Set([BLOCK.Urgestein, BLOCK.Portallicht]),
   });
   instance.replaceable.add(BLOCK.Wasser);
 };

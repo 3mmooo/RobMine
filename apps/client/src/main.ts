@@ -1,5 +1,15 @@
 import { AIR, normalizeSeed, PLAYER, RenderPass } from '@robmine/core';
-import { BLOCK, createBlockRegistry, ITEM } from '@robmine/content';
+import {
+  avatarFromNumber,
+  BLOCK,
+  createBlockRegistry,
+  ITEM,
+  normalizeAvatar,
+  parseWorldId,
+  SAFE_PHRASES,
+  WORLD_TITLES,
+  type WorldId,
+} from '@robmine/content';
 import { Hotbar } from './ui/Hotbar.ts';
 import { Interaction } from './game/Interaction.ts';
 import { Game } from './game/Game.ts';
@@ -9,9 +19,13 @@ import {
   PortTransport,
   type Transport,
   WebSocketTransport,
+  WelcomeFlag,
 } from '@robmine/protocol';
 import { RemotePlayers } from './render/RemotePlayers.ts';
 import { Chat } from './ui/Chat.ts';
+import { AvatarEditor } from './ui/AvatarEditor.ts';
+import { AccountPanel, storedToken } from './ui/AccountPanel.ts';
+import { SelfView } from './render/SelfView.ts';
 import { Renderer, type QualityLevel } from './render/Renderer.ts';
 import { ChunkManager } from './world/ChunkManager.ts';
 import { FlyCamera } from './input/FlyCamera.ts';
@@ -22,7 +36,7 @@ import { WorkerPool } from './workers/rpc.ts';
 import type { GenRequest, GenResponse, MeshRequest, MeshResponse } from './workers/jobs.ts';
 import type { LocalSimInit } from './workers/localsim.worker.ts';
 
-const BUILD = 'phase0';
+const BUILD = 'phase5';
 
 interface Params {
   seed: number;
@@ -37,6 +51,8 @@ interface Params {
   /** Mehrspieler: WebSocket-URL des Servers (z. B. wss://spiel.example.de/ws). */
   server: string | null;
   name: string;
+  /** Welt: 'hafen' (Laternenhafen) oder 'welt' (Dämmerlande); null = Standard. */
+  world: WorldId | null;
 }
 
 function readParams(): Params {
@@ -65,7 +81,29 @@ function readParams(): Params {
       .filter(Boolean),
     server: q.get('server'),
     name: q.get('name') ?? storedName(),
+    world: parseWorldId(q.get('world')),
   };
+}
+
+/** Eigener Avatar aus localStorage (einmal zufällig erzeugt). */
+function storedAvatar(): string {
+  try {
+    let a = localStorage.getItem('robmine-avatar');
+    if (!a) {
+      a = avatarFromNumber(Math.floor(Math.random() * 1e9));
+      localStorage.setItem('robmine-avatar', a);
+    }
+    return normalizeAvatar(a);
+  } catch {
+    return avatarFromNumber(7);
+  }
+}
+
+/** Seite mit anderer Welt neu laden (Portal, H, „Hingehen"). */
+function gotoWorld(world: WorldId): void {
+  const q = new URLSearchParams(location.search);
+  q.set('world', world);
+  location.search = q.toString();
 }
 
 /** Fragt `./server.json` ab (liefert nur der Spielserver aus); sonst Solo. */
@@ -129,9 +167,14 @@ async function main(): Promise<void> {
   if (!params.server && !params.deterministic) params.server = await detectServer();
   if (params.server === 'auto')
     params.server = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-  if (params.server) {
-    if (hint) hint.textContent = `Verbinde mit ${params.server} …`;
-    transport = new WebSocketTransport(await openWebSocket(params.server));
+  // Mit Server startet man im Laternenhafen, solo in den Dämmerlanden.
+  const world: WorldId = params.world ?? (params.server ? 'hafen' : 'welt');
+  const hub = world === 'hafen';
+  let wsUrl = params.server;
+  if (wsUrl && /\/ws\/?$/.test(wsUrl)) wsUrl = `${wsUrl.replace(/\/$/, '')}/${world}`;
+  if (wsUrl) {
+    if (hint) hint.textContent = `Verbinde mit ${WORLD_TITLES[world]} …`;
+    transport = new WebSocketTransport(await openWebSocket(wsUrl));
   } else {
     const simWorker = new Worker(new URL('./workers/localsim.worker.ts', import.meta.url), {
       type: 'module',
@@ -140,7 +183,7 @@ async function main(): Promise<void> {
     const init: LocalSimInit = {
       port: channel.port2,
       seed: params.seed,
-      spawn: [8.5, 112, 8.5],
+      world,
       timeOfDay: params.timeOfDay,
     };
     simWorker.postMessage(init, [channel.port2]);
@@ -154,7 +197,10 @@ async function main(): Promise<void> {
       hint.classList.remove('hidden');
     }
   };
-  const welcome = await connection.hello(params.name, BUILD);
+  const avatar = storedAvatar();
+  const token = params.server ? storedToken() : '';
+  const welcome = await connection.hello(params.name, avatar, BUILD, token);
+  const safeChat = (welcome.flags & WelcomeFlag.SafeChat) !== 0;
 
   const chunks = new ChunkManager(
     renderer,
@@ -164,6 +210,7 @@ async function main(): Promise<void> {
     welcome.worldSeed,
     renderer.preset.radius,
   );
+  chunks.world = welcome.world;
 
   // Bauen: Hotbar, Partikel, Anvisieren; bestätigte Änderungen vom Server einarbeiten.
   const registry = createBlockRegistry();
@@ -189,9 +236,11 @@ async function main(): Promise<void> {
   renderer.scene.add(particles.mesh);
 
   // Spielzustand (Survival/Kreativ, Inventar, Leben, Schattenbrut) – nicht im Testmodus.
-  const game = params.deterministic
-    ? null
-    : new Game(registry, fly, chunks, renderer, hotbar, particles, welcome.worldSeed);
+  // Im Laternenhafen gibt es kein Survival und kein Bauen.
+  const game =
+    params.deterministic || hub
+      ? null
+      : new Game(registry, fly, chunks, renderer, hotbar, particles, welcome.worldSeed);
   if (game) hotbar.setSource(game);
   else document.querySelector('.hotbar')?.classList.add('hidden');
 
@@ -209,22 +258,69 @@ async function main(): Promise<void> {
   // Mitspieler + Chat (nur sichtbar, wenn ein Server verbunden ist).
   const remotes = new RemotePlayers(renderer.scene, (id) => connection.roster.get(id));
   connection.onPlayers = (players) => remotes.applySnapshot(players);
-  connection.onPlayerJoin = (id, name) => remotes.setName(id, name);
+  connection.onPlayerJoin = (id, name, av) => remotes.setInfo(id, name, av);
   connection.onPlayerLeave = (id) => remotes.remove(id);
-  const chat = params.server && !params.deterministic ? new Chat() : null;
+
+  // Eigene Figur (F5) + Avatar-Editor (M) + Konto & Freunde (K, nur mit Server).
+  const self = new SelfView(renderer.scene, avatar);
+  const interactive = !params.deterministic;
+  const account =
+    interactive && wsUrl
+      ? new AccountPanel(wsUrl.replace(/^ws/, 'http').replace(/\/ws.*$/, ''))
+      : null;
+  const editor = interactive ? new AvatarEditor(avatar) : null;
+  const panelsOpen = (): boolean =>
+    !!(editor?.isOpen || account?.isOpen || chat?.isOpen || hotbar.isPickerOpen);
+  if (editor) {
+    editor.canOpen = () => !panelsOpen();
+    editor.onChange = (code) => {
+      self.setAvatar(code);
+      connection.setAvatar(code);
+      try {
+        localStorage.setItem('robmine-avatar', code);
+      } catch {
+        // egal
+      }
+    };
+    editor.onToggle = (open) => {
+      self.front = open;
+      fly.enabled = !open;
+    };
+  }
+  if (account) {
+    account.canOpen = () => !panelsOpen();
+    account.onToggle = (open) => {
+      fly.enabled = !open;
+    };
+    account.onVisit = (w) => gotoWorld(w);
+  }
+  const chat = params.server && interactive ? new Chat(safeChat ? SAFE_PHRASES : null) : null;
   if (chat) {
     chat.onSend = (text) => connection.sendChat(text);
     chat.onToggle = (open) => {
       fly.enabled = !open;
     };
     connection.onChat = (m) => chat.add(m.name, m.text, m.from === 0);
-    chat.add('', `Verbunden als ${params.name} – T zum Chatten.`, true);
+    chat.add(
+      '',
+      `${WORLD_TITLES[world]} – verbunden als ${welcome.name}. T zum Chatten${safeChat ? ' (Satzbausteine)' : ''}.`,
+      true,
+    );
   }
+  window.addEventListener('keydown', (e) => {
+    if (!interactive || e.repeat || panelsOpen()) return;
+    if (e.code === 'F5') {
+      e.preventDefault();
+      self.cycle();
+    } else if (e.code === 'KeyH' && !hub) gotoWorld('hafen');
+  });
   let moveTimer = 0;
 
   // Kollision/Wasser für den Laufmodus aus den geladenen Spalten.
   fly.isSolid = (x, y, z) => registry.solid[chunks.getBlock(x, y, z) & 0xfff] === 1;
   fly.isFluid = (x, y, z) => registry.pass[chunks.getBlock(x, y, z) & 0xfff] === RenderPass.Fluid;
+  self.isSolid = fly.isSolid;
+  if (hub) fly.canFly = false;
 
   // Startpose: Spawn oder Deterministik-Kamera. Ohne feste Kamera: sobald die Spawn-Spalte
   // geladen ist, auf den Boden setzen und in den Laufmodus wechseln.
@@ -301,6 +397,10 @@ async function main(): Promise<void> {
   let last = performance.now();
   let elapsed = 0;
   let hintHidden = false;
+  let leaving = false;
+  if (hub && hint)
+    hint.textContent =
+      'Willkommen im Laternenhafen! WASD laufen · M Avatar · K Konto & Freunde · T Chat · F5 Ansicht · Durchs Portal im Norden geht es in die Dämmerlande';
   fly.onModeChange = (mode) => {
     if (!hint || hintHidden) return;
     if (mode === 'drag')
@@ -311,8 +411,9 @@ async function main(): Promise<void> {
   };
   fly.onWalkChange = (walk) => {
     if (!hint || hintHidden) return;
+    if (hub) return;
     hint.textContent = walk
-      ? 'WASD laufen · Leertaste springen · Linksklick halten = abbauen · Rechtsklick setzen/essen · E Inventar & Herstellen · C Kreativ'
+      ? 'WASD laufen · Leertaste springen · Linksklick halten = abbauen · Rechtsklick setzen/essen · E Inventar · C Kreativ · M Avatar · H Hafen'
       : 'WASD fliegen · Leertaste/Shift hoch/runter · Strg schnell · F laufen · F3 Statistik';
   };
 
@@ -321,7 +422,7 @@ async function main(): Promise<void> {
     last = now;
     if (!params.deterministic) {
       elapsed += dt;
-      timeOfDay = (timeOfDay + dt) % 1440;
+      if (!hub) timeOfDay = (timeOfDay + dt) % 1440; // im Hafen ist immer Tag
       if (api.frames % 4 === 0) renderer.setTimeOfDay(timeOfDay);
     }
     if (!spawned) {
@@ -350,9 +451,29 @@ async function main(): Promise<void> {
         connection.sendMove(p.x, p.y, p.z, fly.yaw, fly.pitch);
       }
     }
+    // Portal im Hafen: hineinlaufen → Dämmerlande
+    if (hub && spawned && !leaving) {
+      const p = fly.position;
+      const fx = Math.floor(p.x);
+      const fz = Math.floor(p.z);
+      const fy = Math.floor(p.y - PLAYER.eyeHeight + 0.2);
+      if (
+        (chunks.getBlock(fx, fy, fz) & 0xfff) === BLOCK.Portallicht ||
+        (chunks.getBlock(fx, fy + 1, fz) & 0xfff) === BLOCK.Portallicht
+      ) {
+        leaving = true;
+        if (hint) {
+          hint.textContent = 'Auf in die Dämmerlande …';
+          hint.classList.remove('hidden');
+        }
+        gotoWorld('welt');
+      }
+    }
     particles.update(dt);
     chunks.applyPending();
+    self.begin(fly, renderer.camera, dt);
     renderer.render(elapsed);
+    self.end(renderer.camera);
     api.frames++;
     overlay.tick(performance.now() - now);
     if (!api.ready && chunks.settled) api.ready = true;

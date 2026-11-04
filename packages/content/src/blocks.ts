@@ -28,6 +28,7 @@ export const BLOCK = {
   Basalt: 22,
   Hainbretter: 23,
   Werkbank: 24,
+  Portallicht: 25,
 } as const;
 
 /** Material-Muster-IDs für den Fragment-Shader. */
@@ -266,6 +267,17 @@ export function createBlockRegistry(): BlockRegistry {
     colorSide: hexToRgb(PALETTE.basalt),
     hardness: 1.8,
     pattern: PATTERN.Stone,
+  });
+  reg.register({
+    id: BLOCK.Portallicht,
+    name: 'portallicht',
+    label: 'Portallicht',
+    colorSide: hexToRgb(PALETTE.glimmerCyan),
+    hardness: -1,
+    opaque: false,
+    solid: false,
+    cutout: true,
+    light: [6, 12, 15],
   });
   return reg;
 }

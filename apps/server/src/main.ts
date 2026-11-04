@@ -5,6 +5,7 @@ import { startServer } from './server.ts';
  * Start:  node apps/server/src/main.ts
  * Umgebung: PORT (8080), SEED (42), DATA_DIR (./data/world), MAX_PLAYERS (16),
  *           ALLOWED_ORIGINS (kommagetrennt, leer = alle),
+ *           GUEST_FREE_CHAT (1 = Gäste dürfen frei schreiben, Standard: nur Satzbausteine),
  *           STATIC_DIR (gebauter Client, z. B. apps/client/dist – dann ist alles unter einer URL)
  */
 const server = await startServer({
@@ -16,6 +17,7 @@ const server = await startServer({
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  guestSafeChat: process.env['GUEST_FREE_CHAT'] !== '1',
   ...(process.env['STATIC_DIR'] ? { staticDir: process.env['STATIC_DIR'] } : {}),
 });
 

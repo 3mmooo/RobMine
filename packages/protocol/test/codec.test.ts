@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { decodeFrame, encodeFrame } from '../src/codec.ts';
 import { ByteReader, ByteWriter } from '../src/bytes.ts';
-import type { Message } from '../src/messages.ts';
+import { type Message, PROTOCOL_VERSION } from '../src/messages.ts';
 import { createLoopbackPair } from '../src/transport.ts';
 
 const samples: Message[] = [
-  { op: 'Hello', protoVer: 1, token: 'gast-äöü-🙂', clientBuild: 'dev', name: 'Lumi' },
+  {
+    op: 'Hello',
+    protoVer: 1,
+    token: 'gast-äöü-🙂',
+    clientBuild: 'dev',
+    name: 'Lumi',
+    avatar: '1a2b3c',
+  },
+  { op: 'SetAvatar', avatar: '012345' },
   { op: 'Ping', clientTime: 123456 },
   { op: 'ChunkRequest', cx: -7, cz: 2147483647 },
   {
@@ -16,6 +24,9 @@ const samples: Message[] = [
     spawn: [12.5, 70, -3.25],
     timeOfDay: 600,
     mode: 0,
+    world: 'hafen',
+    flags: 5,
+    name: 'Lumi',
   },
   {
     op: 'ChunkColumn',
@@ -32,7 +43,7 @@ const samples: Message[] = [
   { op: 'PlayerMove', x: 1.5, y: 70, z: -3.25, yaw: 0.5, pitch: -0.25 },
   { op: 'Chat', text: 'Hallo 🙂' },
   { op: 'Players', players: [{ id: 3, x: 1.5, y: 64, z: 2.5, yaw: 1.5, pitch: 0 }] },
-  { op: 'PlayerJoin', id: 3, name: 'Wanderer' },
+  { op: 'PlayerJoin', id: 3, name: 'Wanderer', avatar: '000000' },
   { op: 'PlayerLeave', id: 3 },
   { op: 'ChatMessage', from: 0, name: 'System', text: 'Willkommen' },
   {
@@ -49,7 +60,7 @@ describe('Protokoll-Codec', () => {
   it('alle Nachrichten überleben den Roundtrip in einem Rahmen', () => {
     const frame = encodeFrame(777, samples);
     const back = decodeFrame(frame);
-    expect(back.version).toBe(2);
+    expect(back.version).toBe(PROTOCOL_VERSION);
     expect(back.tick).toBe(777);
     expect(back.messages).toEqual(samples);
   });
